@@ -28,6 +28,22 @@ export function InstructionsModal({ open, act, targetUnits, complete, pulseDidac
   const t = INTRO[act];
   if (didactic) return (
     <Modal open={open} onClose={() => { setDidactic(false); onDidacticClose(); }} size="3xl" title="Mirada didáctica">
+      {act === 'TSD3' ? (
+      <div className="space-y-4 text-sm text-slate-600">
+        <div className="rounded-xl bg-brand-500 p-4 text-white"><p className="micro !text-accent">Qué ocurre cuando construyes la cerca</p><p className="mt-1 text-sm leading-relaxed">Cada lado de la casa llega como una <b className="text-accent">frase</b> (una pista) y tú la conviertes en <b className="text-accent">regletas</b> que, puestas en fila, llenan el lado completo. Esta situación articula la <i>Teoría de las Situaciones Didácticas</i> de Guy Brousseau con los <i>Registros de Representación Semiótica</i> de Raymond Duval.</p></div>
+        <section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-2 text-xs uppercase tracking-widest text-brand-500">1. Registros de representación (Duval)</h4>
+          <p>Cada lado se expresa en más de un registro, y la cerca exige pasar de uno a otro:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5"><li><b>Lengua natural:</b> «Cuatro veces 3», «Doble de 4 más 4», «Dos grupos de seis».</li><li><b>Simbólico / algebraico:</b> «2n+2», y la expresión numérica que tú escribes en tus formulaciones.</li><li><b>Icónico / gráfico:</b> las regletas en fila sobre el lado de la casa.</li></ul>
+          <p className="mt-2"><b>Conversión:</b> pasar de la frase o de la expresión a las regletas, y de las regletas de vuelta a la expresión. <b>Tratamiento:</b> operar dentro de un mismo registro, por ejemplo calcular mentalmente el valor de una expresión o reorganizar las piezas de un lado. Dos pistas distintas pueden llenar el lado con piezas diferentes, por eso cada una exige su propia conversión.</p></section>
+        <section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-2 text-xs uppercase tracking-widest text-brand-500">2. El medio didáctico (Brousseau)</h4>
+          <p><b>Acción:</b> pruebas piezas sobre el lado, retiras, reajustas. <b>Formulación:</b> al escribir cómo traduces cada pista, explicitas tu estrategia con un lenguaje cada vez más preciso.</p>
+          <p className="mt-2"><b>Validación:</b> el medio actúa como juez. Comprueba que las piezas sumen lo que exige el lado y que su composición responda a la frase. No te dice qué piezas poner: te devuelve información para que ajustes tu propia estrategia, sin intervención directa del docente.</p></section>
+        <section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-2 text-xs uppercase tracking-widest text-brand-500">3. Perímetro y composición aditiva</h4>
+          <p>Los cuatro lados rodean la casa: <b>el perímetro es la suma de todos los lados</b>, y la cerca se cierra solo cuando cada lado está completo y es coherente con su pista. Llegar al total no basta; importa <b>cómo</b> está compuesto.</p>
+          <p className="mt-2"><b>Para reflexionar:</b> ¿qué pista te resultó más difícil de traducir y en qué registro te costó más? ¿Qué cambió en tu forma de buscar las piezas entre el primer lado y el último?</p></section>
+        <p className="rounded-xl border border-accent/30 bg-accent-soft p-3 text-xs italic text-amber-900"><Trophy size={13} className="mr-1 inline" />«Una misma cantidad puede decirse de muchas maneras. El error aquí no es una falla, sino la señal de qué parte de la pista aún no has convertido.»</p>
+      </div>
+      ) : (
       <div className="space-y-4 text-sm text-slate-600">
         <div className="rounded-xl bg-brand-500 p-4 text-white"><p className="micro !text-accent">Enfoque teórico integrado</p><p className="mt-1 text-sm leading-relaxed">Esta experiencia articula la <i>Teoría de las Situaciones Didácticas</i> de Guy Brousseau con los <i>Registros de Representación Semiótica</i> de Raymond Duval.</p></div>
         <section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-2 text-xs uppercase tracking-widest text-brand-500">1. Registros de representación (Duval)</h4>
@@ -41,6 +57,7 @@ export function InstructionsModal({ open, act, targetUnits, complete, pulseDidac
           <p>Cuanto mayor es el entero, más particiones posee: el 5 admite 7 descomposiciones únicas; el 9, 29. El estudiante pasa de ensayar al azar a organizar sistemáticamente sus conversiones y tratamientos.</p></section>
         <p className="rounded-xl border border-accent/30 bg-accent-soft p-3 text-xs italic text-amber-900"><Trophy size={13} className="mr-1 inline" />«La descomposición aditiva es la base para la comprensión del sistema decimal. El error aquí no es una falla, sino un obstáculo epistemológico necesario para la reconstrucción del saber.»</p>
       </div>
+      )}
       <div className="mt-5 text-center"><button className="btn-primary" onClick={() => { setDidactic(false); onDidacticClose(); }}>Volver a instrucciones</button></div>
     </Modal>);
   return (

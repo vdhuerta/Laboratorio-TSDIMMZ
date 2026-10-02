@@ -24,7 +24,7 @@ export function DepositRod({ length, count, selected, showNumber, onSelect }: { 
     <div className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 transition ${selected ? 'border-brand-500 bg-brand-50' : 'border-transparent hover:bg-slate-100'} ${count <= 0 ? 'opacity-40' : ''}`} data-deposit={length}>
       <div ref={setNodeRef} {...attributes} {...listeners} onClick={() => count > 0 && onSelect()} data-testid={`rod-${length}`} title={count > 0 ? `Regleta ${r.name}` : 'Sin unidades disponibles'}
         className={`group touch-none ${count > 0 ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed grayscale'}`} style={{ opacity: isDragging ? 0.35 : 1 }}>
-        <RodBar length={length} unit={13} showNumber={showNumber} className="shadow-xs" style={{ height: 20 }} />
+        <RodBar length={length} unit={13} showNumber={showNumber} className="shadow-xs" style={{ height: 13 }} />
       </div>
       <span className="micro ml-auto !text-[9px] text-slate-400">{r.name}</span>
       <span className={`pill !py-0 text-[10px] ${count > 0 ? 'border-brand-100 bg-brand-50 text-brand-500' : 'border-slate-200 bg-slate-100 text-slate-400'}`} data-testid={`count-${length}`}>{count}</span>

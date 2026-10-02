@@ -1,0 +1,10 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const p = await b.newPage({viewport:{width:1400,height:900}});
+await p.goto('http://localhost:4173');
+await p.click('[data-testid=btn-start]').catch(()=>{});
+await p.waitForTimeout(800);
+const r = await p.evaluate(()=>[...document.querySelectorAll('[data-testid^=rod-]')].map(e=>{const x=e.querySelector('[data-rod]').getBoundingClientRect();return [e.dataset.testid,Math.round(x.width),Math.round(x.height)]}));
+console.log(JSON.stringify(r));
+await p.screenshot({path:'/tmp/dep.png'});
+await b.close();

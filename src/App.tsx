@@ -342,7 +342,7 @@ export default function App() {
                   <div>
                     <span className="pill border-brand-100 bg-brand-50 text-[10px] uppercase tracking-widest text-brand-500">Desafío actual</span>
                     <h2 className="mt-2 text-3xl text-slate-900" data-testid="scenario-title">{ACTIVITY_META[act].name}</h2>
-                    <p className="mt-1 max-w-3xl text-sm text-slate-600">{act === 'TSD2' ? `Reconstruye las 4 vías de paso del puente cubriendo cada una exactamente con regletas.` : act === 'TSD1' ? 'Completa cada escalón con regletas para que Pedro pueda alcanzar su volantín.' : 'Cerca el perímetro de la casa: cada lado mide 12 unidades y debe cumplir su pista lógica.'}</p>
+                    <p className="mt-1 max-w-3xl text-sm text-slate-600">{act === 'TSD2' ? `Reconstruye las 4 vías de paso del puente cubriendo cada una exactamente con regletas.` : act === 'TSD1' ? 'Completa cada escalón con regletas para que Pedro pueda alcanzar su volantín.' : 'Cerca el perímetro de la casa: cada lado debe cumplir su pista lógica y quedar unido a los pilares de las esquinas.'}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button className={`btn-ghost ${prompt ? 'pulse-ok' : ''}`} onClick={openInstructions} data-testid="btn-instructions" data-prompt={prompt ? '1' : '0'}><BookOpen size={14} />Instrucciones</button>
