@@ -1,4 +1,4 @@
-import { HOUSE_IMAGE, LANE_COUNT, TSD3_SIDES, isLaneCorrect, isLaneWrong, realTarget, sideOf, visualCapacity, BG_IMAGES } from '../data/lab';
+import { HOUSE_IMAGE, stairNumber, LANE_COUNT, TSD3_SIDES, isLaneCorrect, isLaneFlagged, realTarget, sideOf, visualCapacity, BG_IMAGES } from '../data/lab';
 import type { ActivityKey, LabConfig, RodInstance } from '../labTypes';
 import { LaneView } from './Rods';
 
@@ -12,7 +12,7 @@ export default function Scene({ act, lanes, cfg, showCounter, showNumber, placeM
   const mk = (idx: number, orientation: 'h' | 'v', extra: { align?: 'start' | 'end'; label?: string } = {}) => {
     const lane = lanes[idx] ?? []; const lens = lane.map((r) => r.length);
     return <LaneView key={idx} idx={idx} lane={lane} capacity={visualCapacity(act, idx, cfg)} target={realTarget(act, idx, cfg)} orientation={orientation}
-      correct={isLaneCorrect(act, idx, lens, cfg)} wrong={isLaneWrong(act, idx, lens, cfg)} showCounter={showCounter} showNumber={showNumber} placeMode={placeMode} reveal={reveal}
+      correct={isLaneCorrect(act, idx, lens, cfg)} wrong={isLaneFlagged(act, idx, lens, cfg)} showCounter={showCounter} showNumber={showNumber} placeMode={placeMode} reveal={reveal}
       onRemove={(id, len) => onRemove(idx, id, len)} onPlaceSelected={() => onPlaceSelected(idx)} align={extra.align} label={extra.label} />;
   };
   const bg = BG_IMAGES[act];
@@ -21,7 +21,7 @@ export default function Scene({ act, lanes, cfg, showCounter, showNumber, placeM
   if (act === 'TSD1') return (
     <div className="flex flex-1 justify-center overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="scene-TSD1">
       <div className="relative aspect-[1415/823] min-h-[480px] w-full bg-cover bg-bottom bg-no-repeat" style={{ backgroundImage: `url("${bg}")` }}>
-        <div className="absolute bottom-[9%] right-[28.5%] z-10 flex flex-col items-end gap-[3px]" data-testid="stairs">{Array.from({ length: LANE_COUNT.TSD1 }, (_, i) => mk(i, 'h', { align: 'end', label: `Escalón ${i + 1}` }))}</div>
+        <div className="absolute bottom-[9%] right-[28.5%] z-10 flex flex-col items-end gap-[3px]" data-testid="stairs">{Array.from({ length: LANE_COUNT.TSD1 }, (_, i) => mk(i, 'h', { align: 'end', label: `Escalón ${stairNumber(i)}` }))}</div>
         {help}
       </div>
     </div>);
@@ -33,11 +33,15 @@ export default function Scene({ act, lanes, cfg, showCounter, showNumber, placeM
         {help}
       </div>
     </div>);
+  const sideLens = (i: number) => (lanes[i] ?? []).map((r) => r.length);
+  const okSide = (i: number) => isLaneCorrect(act, i, sideLens(i), cfg);
+  const badSide = (i: number) => isLaneFlagged(act, i, sideLens(i), cfg);
+  const allOk = TSD3_SIDES.every((s) => okSide(s.idx));
   const clues = <p className="micro absolute inset-x-0 bottom-6 z-10 mx-auto w-fit max-w-[95%] rounded-md bg-white/80 px-2 py-0.5 text-center !text-[10px]" data-testid="scene-clues">{sideOf(3).label}: «{sideOf(3).clue}» · {sideOf(0).label}: «{sideOf(0).clue}» · {sideOf(1).label}: «{sideOf(1).clue}» · {sideOf(2).label}: «{sideOf(2).clue}»</p>;
   return (
     <div className="flex flex-1 justify-center overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid={`scene-${act}`}>
       <div className="relative flex min-h-[620px] w-full items-center justify-center bg-no-repeat" style={{ backgroundImage: `url("${HOUSE_IMAGE}")`, backgroundSize: '11rem', backgroundPosition: 'center' }}>
-        <div className="relative z-10 h-[400px] w-[400px]" data-testid="fence">
+        <div className={`relative z-10 h-[400px] w-[400px] rounded-lg transition ${reveal && allOk ? 'ring-4 ring-emerald-400/80 ring-offset-8 ring-offset-white' : ''}`} data-testid="fence" data-all-correct={allOk ? '1' : '0'}>
           {['left-0 top-0', 'right-0 top-0', 'bottom-0 left-0', 'bottom-0 right-0'].map((p) => <div key={p} className={`absolute ${p} z-20 h-[34px] w-[34px] rounded border-2 border-white bg-black shadow-md`} title="Pilar" />)}
           {TSD3_SIDES.map((s) => {
             const pos = s.idx === 3 ? 'left-0 top-[34px]' : s.idx === 0 ? 'left-[34px] top-0' : s.idx === 1 ? 'right-0 top-[34px]' : 'bottom-0 left-[34px]';
@@ -45,7 +49,7 @@ export default function Scene({ act, lanes, cfg, showCounter, showNumber, placeM
             const horizontal = s.idx === 0 || s.idx === 2;
             return (
               <div key={s.idx} className={`absolute ${pos}`}>
-                <span className={`pill pointer-events-none absolute z-10 whitespace-nowrap border-accent/40 bg-white !py-0 text-[11px] text-accent font-title ${lab}`} data-testid={`side-${s.label}`}>{s.label}</span>
+                <span className={`pill pointer-events-none absolute z-10 whitespace-nowrap !py-0 text-[11px] font-title ${lab} ${reveal && okSide(s.idx) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : reveal && badSide(s.idx) ? 'border-rose-500 bg-rose-50 text-rose-600' : 'border-accent/40 bg-white text-accent'}`} data-testid={`side-${s.label}`}>{s.label}</span>
                 {mk(s.idx, horizontal ? 'h' : 'v', { label: s.name })}
               </div>);
           })}

@@ -45,7 +45,7 @@ export function LaneView({ idx, lane, capacity, target, orientation, correct, wr
   if (active && isOver) { const d = active.data.current as { length?: number; piece?: { length: number } } | undefined; const len = d?.length ?? d?.piece?.length ?? 0; if (total + len > capacity) blocked = true; }
   const size = capacity * UNIT_SIZE + 4;
   const okV = reveal && correct, noV = reveal && wrong;
-  const tone = blocked ? 'border-rose-400 bg-rose-50/60 ring-4 ring-rose-200/60' : isOver ? 'border-brand-400 bg-brand-50/70 ring-4 ring-brand-200/60' : noV ? 'border-rose-300 bg-rose-50/40' : okV ? 'border-emerald-400 bg-emerald-50/60' : 'border-dashed border-slate-400 bg-white/60';
+  const tone = blocked ? 'border-rose-400 bg-rose-50/60 ring-4 ring-rose-200/60' : isOver ? 'border-brand-400 bg-brand-50/70 ring-4 ring-brand-200/60' : noV ? 'border-rose-500 bg-rose-50/70 ring-2 ring-rose-300' : okV ? 'border-emerald-500 bg-emerald-50/60 ring-2 ring-emerald-300' : 'border-dashed border-slate-400 bg-white/60';
   return (
     <div className="relative">
       <div ref={setNodeRef} onClick={onPlaceSelected} data-lane={idx} data-correct={correct ? '1' : '0'} data-testid={`lane-${idx}`} title={label}

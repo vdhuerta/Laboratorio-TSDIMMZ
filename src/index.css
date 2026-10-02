@@ -32,3 +32,7 @@ table .pill, table .btn-ghost, table .btn-primary, table .btn-danger { font-size
 table .input { font-size: 10px !important; }
 table td :where(span, p, div, b, a) { font-size: inherit !important; }
 table td .text-\[9px\], table td .text-\[10px\] { font-size: 9px !important; }
+
+/* Invitación a reflexionar al terminar una etapa: contorno verde tenue con pulso */
+@keyframes pulseOk { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .45); } 70% { box-shadow: 0 0 0 9px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+.pulse-ok { border-color: rgb(52 211 153) !important; box-shadow: 0 0 0 2px rgba(16, 185, 129, .25); animation: pulseOk 1.8s ease-out infinite; }

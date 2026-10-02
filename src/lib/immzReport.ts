@@ -1,5 +1,5 @@
 import { APP_META, APP_VERSION, INDICATORS, INSTITUTION } from '../config';
-import { ACTIVITIES, ACTIVITY_META, ANCHOR_CONFIGS, FORMULATION_QUESTIONS, LANE_COUNT, TOTAL_LANES, TSD3_SIDES, isLaneCorrect, realTarget, rodOf, sideOf } from '../data/lab';
+import { ACTIVITIES, ACTIVITY_META, ANCHOR_CONFIGS, FORMULATION_QUESTIONS, LANE_COUNT, TOTAL_LANES, TSD3_SIDES, isLaneCorrect, realTarget, rodOf, sideOf, stairNumber } from '../data/lab';
 import type { ActivityKey, LabEvent, RodInstance, Snapshot } from '../labTypes';
 import type { ImmzCategory } from '../types';
 import { categorize } from './immz/scoring';
@@ -8,7 +8,7 @@ import { ICON_SVG } from './reportIcons';
 import { buildAnalysisModel } from '../analysis/model';
 import type { IndicatorView } from '../analysis/standard';
 import { snapshotImage } from './snapshots';
-import { computeIndicators, computeStats, correctLanes, indicesOf, laneLengths, phaseJumps, promptKeys, stageProgress, type IndicatorResult, type SessionStats } from './metrics';
+import { SCORING_VERSION, im2Detail, computeIndicators, computeStats, correctLanes, indicesOf, laneLengths, phaseJumps, promptKeys, stageProgress, type IndicatorResult, type SessionStats } from './metrics';
 
 /**
  * CONTRATO DE REPORTE IMMZ (esquema 4.0) — Diario de Campo ⇄ Laboratorio TSD
@@ -36,11 +36,11 @@ export const makeCertificateId = (now: Date) => `${now.getFullYear()}${now.toLoc
 export const safeFileName = (name: string) => name.trim().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Participante';
 export const reportFileName = (name: string, id: string) => `${APP_META.filenamePrefix}${safeFileName(name)}_${id}.html`;
 
-export const laneLabel = (a: ActivityKey, idx: number) => (a === 'TSD1' ? `Escalón ${idx + 1}` : a === 'TSD2' ? `Vía ${idx + 1}` : sideOf(idx).name);
+export const laneLabel = (a: ActivityKey, idx: number) => (a === 'TSD1' ? `Escalón ${stairNumber(idx)}` : a === 'TSD2' ? `Vía ${idx + 1}` : sideOf(idx).name);
 /** Orden de lectura de los carriles de cada actividad (la cerca se lee L1→L4). */
-export const laneOrder = (a: ActivityKey) => (a === 'TSD3' ? TSD3_SIDES.map((s) => s.idx) : Array.from({ length: LANE_COUNT[a] }, (_, i) => i));
+export const laneOrder = (a: ActivityKey) => (a === 'TSD3' ? TSD3_SIDES.map((s) => s.idx) : a === 'TSD1' ? Array.from({ length: LANE_COUNT.TSD1 }, (_, i) => LANE_COUNT.TSD1 - 1 - i) : Array.from({ length: LANE_COUNT[a] }, (_, i) => i));
 /** «Mensaje encriptado»: traducción de la construcción al código aditivo (colores → códigos). */
-export const encryptedMessage = (snap: Snapshot, a: ActivityKey) => laneOrder(a).map((i) => { const l = snap.lanes[a][i] ?? []; return `${a === 'TSD3' ? sideOf(i).label : (a === 'TSD1' ? 'ESC ' : 'VÍA ') + (i + 1)}: ${l.length ? l.map((r) => r.code).join('-') : '[ ]'}`; });
+export const encryptedMessage = (snap: Snapshot, a: ActivityKey) => laneOrder(a).map((i) => { const l = snap.lanes[a][i] ?? []; return `${a === 'TSD3' ? sideOf(i).label : (a === 'TSD1' ? 'ESC ' + stairNumber(i) : 'VÍA ' + (i + 1))}: ${l.length ? l.map((r) => r.code).join('-') : '[ ]'}`; });
 
 export const REPORT_CSS = `
 :root{--bg:#F2F1EC;--line:#E4E2D8;--ink:#23271F;--mut:#6E6F66;--brand:#24473A;--brand50:#EEF4F1;--brand100:#DCE8E2;--accent:#C98F2D;--accentsoft:#F6ECD6;--white:#fff}
@@ -137,13 +137,15 @@ const eventLabel = (e: LabEvent): [string, string] => {
     case 'question_open': return ['Pregunta de formulación abierta', `Pregunta ${e.questionId}`];
     case 'question_answer': return ['Respuesta registrada', e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`];
     case 'answer_revision': return ['Respuesta revisada', e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`];
-    case 'devolution_request': return ['Devolución solicitada', `${e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`} · nivel ${e.devolutionLevel ?? ''}`];
+    case 'devolution_request': return [e.payload?.scope === 'construction' ? 'Devolución didáctica de la construcción' : 'Devolución solicitada', `${e.payload?.scope === 'construction' ? `${ACTIVITY_META[e.activity].short}${lane ? ` · ${lane}` : ''}` : e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`} · nivel ${e.devolutionLevel ?? ''}`];
     case 'anchor_open': return ['Panel de anclajes abierto', e.activity];
     case 'formulation_panel_open': return ['Panel de formulación abierto', e.activity];
     case 'validation_success': return ['Carril validado', lane];
     case 'activity_complete': return ['Actividad completada', ACTIVITY_META[e.activity].name];
     case 'activity_switch': return ['Cambio de actividad', `→ ${ACTIVITY_META[e.activity].short}`];
-    case 'didactic_view': return ['Mirada Didáctica', ACTIVITY_META[e.activity].short];
+    case 'instructions_open': return [e.payload?.prompted ? 'Abre Instrucciones (invitada por el pulso verde)' : 'Abre Instrucciones', ACTIVITY_META[e.activity].short];
+    case 'didactic_view': return ['Abre la Mirada Didáctica', ACTIVITY_META[e.activity].short];
+    case 'didactic_close': return ['Cierra la Mirada Didáctica', `${ACTIVITY_META[e.activity].short} · ${e.payload?.seconds ?? 0} s`];
     case 'message_view': return ['Mensaje encriptado', ACTIVITY_META[e.activity].short];
     default: return ['Cambio de configuración', JSON.stringify(e.payload ?? {})];
   }
@@ -165,13 +167,13 @@ export function buildReport(input: ReportInput): BuiltReport {
     const r = indicators.find((x) => x.code === d.id)!;
     return { code: d.id, name: d.label, dimension: d.dimension, subdimension: d.sub, value: r.value, level: categorize(r.value), has_evidence: r.value !== null, evidence_n: r.denominator, feedback: r.feedback };
   });
-  const progression = ACTIVITIES.map((a) => { const ind = computeIndicators(snap, a); const ix = indicesOf(ind); return { actividad: a, immz: ix.immz, idcd: ix.idcd, immg: ix.immg, indicadores_con_evidencia: ind.filter((i) => i.value !== null).length, carriles_correctos: correctLanes(snap, a), carriles_totales: LANE_COUNT[a], avance_pct: stageProgress(snap, a) }; });
+  const progression = ACTIVITIES.map((a) => { const ind = computeIndicators(snap, a); const ix = indicesOf(ind); return { actividad: a, immz: ix.immz, idcd: ix.idcd, immg: ix.immg, indicadores_con_evidencia: ind.filter((i) => i.value !== null).length, devoluciones_construccion: snap.history.filter((e) => e.activity === a && e.type === 'devolution_request' && e.payload?.scope === 'construction').length, carriles_correctos: correctLanes(snap, a), carriles_totales: LANE_COUNT[a], avance_pct: stageProgress(snap, a) }; });
   const formulacion = [1, 2, 3, 4].map((q) => ({ pregunta: q, titulo: FORMULATION_QUESTIONS[q - 1].subhead, respuesta: snap.answers[`q${q}` as 'q1'] || '', devoluciones_consultadas: snap.formulationStates[q]?.devolutionLevel ?? 0, revisiones: snap.formulationStates[q]?.revisionsCount ?? 0 }));
   const anclajes = (['TSD2', 'TSD3'] as const).map((a) => ({ actividad: a, titulo: ANCHOR_CONFIGS[a].title, subhead: ANCHOR_CONFIGS[a].subhead, enunciado: ANCHOR_CONFIGS[a].enunciado, respuesta: snap.answers[a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge'] || '', devoluciones_consultadas: snap.anchorStates[a].devolutionLevel, revisiones: snap.anchorStates[a].revisionsCount }));
 
   // ── Payload canónico (lo lee el Diario) ──
   const payload: Record<string, unknown> = {
-    schema_version: '4.0', schemaVersion: '4.0',
+    schema_version: '4.0', schemaVersion: '4.0', scoring_version: SCORING_VERSION,
     app: { id: APP_META.id, name: APP_META.name, version: APP_VERSION },
     scenarioName: APP_META.scenarioName,
     class_number: cls, classNumber: cls,
@@ -194,6 +196,14 @@ export function buildReport(input: ReportInput): BuiltReport {
     schema: 'immz-trace/1', app: payload.app, certificate_id: certificateId, class_number: cls, participant_name: name,
     started_at: history.length ? new Date(history[0].timestamp).toISOString() : null, ended_at: now.toISOString(), duration_seconds: duration,
     indicator_evidence: indicators.map((r) => ({ code: r.code, value: r.value, numerator: r.numerator, denominator: r.denominator, formula: r.formula })),
+    scoring: { version: SCORING_VERSION, im2: { unit: 'carril', units_worked: im2Detail(history).worked, credit: Math.round(im2Detail(history).credit * 10) / 10, detail: im2Detail(history).units } },
+    didactic_prompts: ACTIVITIES.map((a) => {
+      const E = history.filter((e) => e.activity === a); const done = E.find((e) => e.type === 'activity_complete');
+      const ins = done ? E.find((e) => e.type === 'instructions_open' && e.timestamp >= done.timestamp) : undefined;
+      const dv = E.find((e) => e.type === 'didactic_view'); const dc = E.filter((e) => e.type === 'didactic_close').pop();
+      const iso = (e?: LabEvent) => (e ? new Date(e.timestamp).toISOString() : null);
+      return { activity: a, completed_at: iso(done), instructions_opened_at: iso(ins), instructions_prompted: ins?.payload?.prompted === true, didactic_opened_at: iso(dv), didactic_seconds: typeof dc?.payload?.seconds === 'number' ? dc.payload.seconds : null, seconds_to_didactic: done && dv ? Math.max(0, Math.round((dv.timestamp - done.timestamp) / 1000)) : null };
+    }),
     phase_jumps: phaseJumps(snap),
     final_state: Object.fromEntries(ACTIVITIES.map((a) => [a, laneOrder(a).map((i) => ({ lane: i, label: laneLabel(a, i), target: realTarget(a, i, snap.config), rods: laneLengths(snap, a, i), is_correct: isLaneCorrect(a, i, laneLengths(snap, a, i), snap.config) }))])),
     answers: snap.answers, formulation_states: snap.formulationStates, anchor_states: snap.anchorStates, config: snap.config,

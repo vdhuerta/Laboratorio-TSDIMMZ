@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { ArrowLeft, Bookmark, Brain, CheckCircle2, ChevronRight, FlaskConical, HelpCircle, Lock, MessageSquare, Sparkles } from 'lucide-react';
 import { ANCHOR_CONFIGS, FORMULATION_QUESTIONS } from '../data/lab';
+import { Tip } from './ui';
+import { substantive } from '../lib/metrics';
 import type { AnchorState, FormulationAnswers, FormulationQuestionState } from '../labTypes';
 
 const Devolutions = ({ items, level }: { items: string[]; level: number }) => (
@@ -21,7 +23,17 @@ export function FormulationPanel({ correctLanes, answers, states, onAnswer, onFl
 }) {
   const [active, setActive] = useState(1);
   const has = (k: keyof FormulationAnswers) => (answers[k] ?? '').trim().length > 0;
-  const unlocked = (id: number) => (id === 1 ? correctLanes >= 5 : id === 2 ? correctLanes >= 10 : id === 3 ? has('q2') : has('q3'));
+  const done = (id: number) => substantive(answers[`q${id}` as keyof FormulationAnswers]);
+  /* Secuencial: cada pregunta exige la anterior habilitada y respondida con una explicación propia. */
+  const unlocked = (id: number): boolean => (id === 1 ? correctLanes >= 5 : id === 2 ? correctLanes >= 10 && done(1) : unlocked(id - 1) && done(id - 1));
+  const needs = (id: number): string[] => {
+    if (id === 1) return correctLanes >= 5 ? [] : [`Completa al menos 5 escalones correctos en la escalera (llevas ${correctLanes}).`];
+    const out: string[] = [];
+    if (id === 2 && correctLanes < 10) out.push(`Completa los 10 escalones de la escalera (llevas ${correctLanes}).`);
+    if (id > 2 && !unlocked(id - 1)) out.push(`Primero debe habilitarse la Pregunta ${id - 1}.`);
+    else if (!done(id - 1)) out.push(`Responde la Pregunta ${id - 1} con tus palabras (al menos 4 palabras).`);
+    return out;
+  };
   const q = FORMULATION_QUESTIONS.find((x) => x.id === active)!;
   const st = states[active] ?? { id: active, answer: '', devolutionLevel: 0, revisionsCount: 0 };
   const key = `q${active}` as keyof FormulationAnswers;
@@ -34,13 +46,13 @@ export function FormulationPanel({ correctLanes, answers, states, onAnswer, onFl
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{FORMULATION_QUESTIONS.map((x) => {
         const u = unlocked(x.id); const done = has(`q${x.id}` as keyof FormulationAnswers); const on = x.id === active;
-        return (<button key={x.id} disabled={!u} data-testid={`q-tab-${x.id}`} onClick={() => { setActive(x.id); onOpenQuestion(x.id); }}
-          className={`rounded-xl border p-3 text-left transition ${on ? 'border-brand-500 bg-brand-500 text-white' : u ? (done ? 'border-emerald-200 bg-emerald-50 hover:border-emerald-400' : 'border-slate-200 bg-white hover:bg-slate-100') : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'}`}>
+        return (<Tip key={x.id} className="block" title={`Pregunta ${x.id} bloqueada`} lines={u ? [] : needs(x.id)}><button disabled={!u} data-testid={`q-tab-${x.id}`} onClick={() => { setActive(x.id); onOpenQuestion(x.id); }}
+          className={`w-full rounded-xl border p-3 text-left transition disabled:pointer-events-none ${on ? 'border-brand-500 bg-brand-500 text-white' : u ? (done ? 'border-emerald-200 bg-emerald-50 hover:border-emerald-400' : 'border-slate-200 bg-white hover:bg-slate-100') : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'}`}>
           <span className="flex items-center justify-between"><span className={`micro ${on ? '!text-brand-100' : ''}`}>P{x.id}</span>{!u ? <Lock size={12} /> : done ? <CheckCircle2 size={14} className={on ? 'text-emerald-300' : 'text-emerald-600'} /> : null}</span>
-          <span className="mt-1 block text-xs">{x.title}</span></button>);
+          <span className="mt-1 block text-xs">{x.title}</span></button></Tip>);
       })}</div>
       {!unlocked(active) ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center"><Lock className="mx-auto mb-2 text-slate-400" /><h4 className="text-sm text-slate-900">Pregunta {active} bloqueada</h4><p className="mx-auto mt-1 max-w-md text-xs text-slate-500">{q.unlockConditionText}</p></div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-8 text-center"><Lock className="mx-auto mb-2 text-slate-400" /><h4 className="text-sm text-slate-900">Pregunta {active} bloqueada</h4><div className="mx-auto mt-1 max-w-md space-y-1 text-xs text-slate-500">{needs(active).map((t) => <p key={t}>{t}</p>)}</div></div>
       ) : (
         <div className="space-y-4">
           <div className="rounded-xl border border-brand-100 bg-brand-50 p-4"><p className="micro mb-1 flex items-center gap-1.5 !text-brand-500"><MessageSquare size={12} />{q.subhead}</p><p className="text-sm leading-relaxed text-slate-900">{q.enunciado}</p></div>
@@ -84,6 +96,28 @@ export function AnchorPanel({ activity, answers, anchor, onAnswer, onFlush, onRe
         {anchor.devolutionLevel === 0 ? <p className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-[11px] italic text-slate-500">Si necesitas pistas para orientar tu análisis sobre la descomposición, solicita una devolución didáctica.</p> : <Devolutions items={c.devoluciones} level={anchor.devolutionLevel} />}
         {anchor.devolutionLevel === 3 && <Exhausted onOpen={onOpenTesting} text="Consultaste todas las pistas. Comprueba tus hipótesis manipulando las regletas en el área de pruebas." />}
       </div>
+    </div>
+  );
+}
+
+/** Devolución didáctica de la construcción: disponible en cada actividad, gradual (1 a 3) y a voluntad del participante. */
+export function ConstructionDevolution({ stageName, situationLabel, texts, level, onRequest, onOpenTesting, onOpenFormulation }: {
+  stageName: string; situationLabel: string; texts: string[]; level: number; onRequest: () => void; onOpenTesting: () => void; onOpenFormulation?: () => void;
+}) {
+  return (
+    <div className="space-y-4" data-testid="construction-devolution">
+      <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+        <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500 text-white"><HelpCircle size={20} /><span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-bl-md bg-accent" /></div>
+        <div><p className="micro">Devolución didáctica · {stageName}</p><h3 className="text-base text-slate-900">Una pista para seguir pensando</h3></div>
+      </div>
+      <div className="rounded-xl border border-brand-100 bg-brand-50 p-3"><p className="micro !text-brand-500">Mirada sobre</p><p className="text-sm text-slate-900" data-testid="dev-situation">{situationLabel}</p></div>
+      <div className="flex items-center justify-between">
+        <h4 className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-900">Devoluciones ({level}/3)</h4>
+        {level < 3 && <button data-testid="btn-construction-devolution" className="btn-ghost !py-1.5" onClick={onRequest}>{level === 0 ? 'Solicitar devolución' : 'Otra pista'}<ChevronRight size={13} /></button>}
+      </div>
+      {level === 0 ? <p className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-[11px] italic text-slate-500">Si quieres orientación sobre lo que estás construyendo, solicita una devolución. Es una pregunta que te ayuda a mirar de nuevo, no la respuesta.</p> : <Devolutions items={texts} level={level} />}
+      {level === 3 && <Exhausted onOpen={onOpenTesting} text="Consultaste todas las pistas de esta situación. Comprueba tus ideas manipulando regletas en Experimenta." />}
+      {onOpenFormulation && <button onClick={onOpenFormulation} className="btn-ghost w-full justify-center"><Brain size={14} />Ir a Formulación</button>}
     </div>
   );
 }

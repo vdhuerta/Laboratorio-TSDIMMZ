@@ -42,6 +42,8 @@ export const TSD3_SIDES = [
   { idx: 1, label: 'L3', name: 'Lado 3', clue: 'Doble de 4 más 4', expr: '8 + 4', pattern: [4, 8] },
   { idx: 2, label: 'L4', name: 'Lado 4', clue: 'Dos grupos de seis', expr: '6 + 6', pattern: [6, 6] },
 ] as const;
+/** Escalón n de la escalera contado DESDE ABAJO (el carril interno 0 es el de arriba). */
+export const stairNumber = (idx: number) => LANE_COUNT.TSD1 - idx;
 export const sideOf = (idx: number) => TSD3_SIDES.find((s) => s.idx === idx)!;
 
 /** Meta real del carril (lo que debe sumar para estar correcto). */
@@ -63,11 +65,14 @@ export function isLaneCorrect(act: ActivityKey, idx: number, lengths: number[], 
 /** TSD 3: el lado llegó a 12 pero con una composición que no corresponde a la pista. */
 export const isLaneWrong = (act: ActivityKey, idx: number, lengths: number[], cfg: LabConfig) => act === 'TSD3' && sum(lengths) >= TSD3_TOTAL && !isLaneCorrect(act, idx, lengths, cfg);
 
+/** Contenedor con piezas que no corresponden (para el «ojo»): TSD 1 y 2 se pasan de la meta; TSD 3 llega a 12 con otra composición. */
+export const isLaneFlagged = (act: ActivityKey, idx: number, lengths: number[], cfg: LabConfig) => (act === 'TSD3' ? isLaneWrong(act, idx, lengths, cfg) : sum(lengths) > realTarget(act, idx, cfg));
+
 /* ───────────── Formulación (TSD 1) y anclajes (TSD 2 y 3) ───────────── */
 export interface QuestionConfig { id: number; title: string; subhead: string; enunciado: string; devoluciones: string[]; unlockConditionText: string }
 export const FORMULATION_QUESTIONS: QuestionConfig[] = [
   { id: 1, title: 'Pregunta 1', subhead: 'Observación de la regularidad',
-    enunciado: 'Observa la escalera que construiste. ¿Qué cambia cuando pasas de un escalón al siguiente? Descríbelo con tus palabras.',
+    enunciado: 'Observa la escalera que construiste. Recórrela de abajo hacia arriba: ¿qué cambia cuando pasas de un escalón al siguiente? Descríbelo con tus palabras.',
     devoluciones: ['Elige dos escalones que estén uno al lado del otro y compáralos. ¿En qué se parecen y en qué se diferencian?', 'En el área de experimentación, coloca regletas sobre la diferencia entre esos dos escalones hasta cubrirla exactamente. ¿Qué encuentras?', 'Repite lo que hiciste en otra parte de la escalera, con dos escalones distintos. ¿Ocurre lo mismo?'],
     unlockConditionText: 'Se habilita cuando hay al menos 5 carriles correctos en la escalera.' },
   { id: 2, title: 'Pregunta 2', subhead: 'Búsqueda de una medida común',
@@ -79,8 +84,8 @@ export const FORMULATION_QUESTIONS: QuestionConfig[] = [
     devoluciones: ['Vuelve a lo que anotaste en la pregunta anterior. ¿Ese resultado te sirve para nombrar cada regleta?', 'Escribe el nombre que le darías a tres regletas distintas y compáralo con la posición que ocupan en la escalera. ¿Coinciden?', '¿Podrían dos regletas distintas recibir el mismo nombre? Compruébalo con el material antes de responder.'],
     unlockConditionText: 'Se habilita al responder la Pregunta 2 por escrito.' },
   { id: 4, title: 'Pregunta 4', subhead: 'La relación entre un escalón y el siguiente',
-    enunciado: 'Ya le diste un nombre a cada regleta. Ahora explica cómo se obtiene el escalón que sigue, a partir de cualquier escalón. Escríbelo de manera que le sirva a otra persona para cualquier escalón de la escalera.',
-    devoluciones: ['Elige un escalón cualquiera y el que viene después. ¿Qué tendrías que agregarle al primero para obtener el segundo?', 'Comprueba si lo que escribiste también funciona en el otro extremo de la escalera.', '¿Tu explicación serviría para un escalón que todavía no está en la escalera, por ejemplo el que vendría después del más largo? Pruébalo.'],
+    enunciado: 'Ya le diste un nombre a cada regleta. Ahora explica cómo se obtiene el escalón que sigue hacia arriba, a partir de cualquier escalón. Escríbelo de manera que le sirva a otra persona para cualquier escalón de la escalera.',
+    devoluciones: ['Elige un escalón cualquiera y el que viene después. ¿Qué cambio tendrías que hacerle al primero para obtener el segundo?', 'Comprueba si lo que escribiste también funciona en el otro extremo de la escalera.', '¿Tu explicación serviría para un escalón que todavía no está en la escalera, por ejemplo uno más abajo del primero? Pruébalo.'],
     unlockConditionText: 'Se habilita al responder la Pregunta 3 por escrito.' },
 ];
 
@@ -100,7 +105,7 @@ export const INTRO: Record<ActivityKey, { kicker: string; hook: string; story: s
     story: 'El volantín de Pedro se ha quedado atrapado. Arrastra las regletas para construir una estructura coherente que le permita llegar hasta él.',
     scenarioText: 'Explora las piezas y utilízalas para completar los espacios en blanco de la escalera, de forma que Pedro pueda subir hasta su volantín.',
     goal: 'Explora las piezas y utilízalas para completar los espacios en blanco de la escalera de forma que Pedro pueda subir.',
-    steps: ['Explora las piezas en el depósito y arrástralas al espacio de trabajo.', 'Completa cada uno de los 10 niveles usando las regletas correspondientes.', 'Busca una construcción coherente que permita a Pedro subir seguro.', 'Rescata el volantín completando todos los niveles de la escalera.'],
+    steps: ['Explora las piezas en el depósito y arrástralas al espacio de trabajo.', 'Construye la escalera de abajo hacia arriba, empezando por el Escalón 1, y completa los 10 niveles con las regletas correspondientes.', 'Busca una construcción coherente que permita a Pedro subir seguro.', 'Rescata el volantín completando todos los niveles de la escalera.'],
     incomplete: 'Aún faltan escalones para que Pedro pueda subir.', success: '¡VOLANTÍN RESCATADO!', summary: 'Resumen de escalera' },
   TSD2: { kicker: 'Operación Reconstrucción', hook: '¡Nuestros enemigos han derribado el PUENTE del castillo!', scenarioTitle: 'El Puente del Castillo',
     story: 'Para poder cruzar el río y entrar, necesitamos reconstruirlo. Pero atención: no podemos usar piezas al azar, debemos seguir las instrucciones secretas.',

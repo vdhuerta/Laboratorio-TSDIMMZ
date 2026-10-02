@@ -39,10 +39,31 @@ await dragRod(1, 0);                       // arrastre real con el mouse
 const dragged = await lanesOk();
 await unselect();
 await put(3, 1, 1500);                     // lane 1 necesita 2: el 3 excede la meta (error)
-await removeFrom(1, 3); await wait(1400);  // corrección
+await page.click('[data-testid="btn-devolution-construction"]'); await wait(200);
+const devSit = await page.textContent('[data-testid="dev-situation"]');
+await page.click('[data-testid="btn-construction-devolution"]'); await wait(150);
+await page.click('[data-testid="btn-construction-devolution"]'); await wait(150);
+const devTexts = await page.locator('[data-testid="devolution-text"]').count();
+await page.keyboard.press('Escape'); await wait(200);
+if (await page.locator('[data-testid="construction-devolution"]').count()) await page.mouse.click(5, 5);
+await wait(200);
+await page.click('[data-testid="btn-eye"]'); await wait(200);
+const redOutline = await page.locator('[data-testid="lane-1"]').evaluate((e) => e.className.includes('border-rose-500'));
+await shot('03d-ojo-rojo'); await page.click('[data-testid="btn-eye"]'); await wait(200);
+await removeFrom(1, 3); await wait(1400);  // corrección tras la devolución
 await put(2, 1, 1400);
 for (let i = 2; i < 10; i++) await put(i + 1, i, i % 3 === 0 ? 1400 : 200);
 await shot('03-tsd1-escalera'); const ok1 = await lanesOk();
+const pulse1 = await page.locator('[data-testid="btn-instructions"]').getAttribute('data-prompt');
+const pulseCls = await page.locator('[data-testid="btn-instructions"]').evaluate((e) => e.className.includes('pulse-ok'));
+await shot('03e-pulso-instrucciones');
+await page.click('[data-testid="btn-instructions"]'); await wait(300);
+const didPulse = await page.locator('[data-testid="btn-didactic"]').evaluate((e) => e.className.includes('pulse-ok') && !e.disabled);
+await shot('03f-pulso-mirada');
+await page.click('[data-testid="btn-didactic"]'); await wait(1200);
+await page.click('text=Volver a instrucciones'); await wait(300);
+await page.click('[data-testid="btn-close-instructions"]'); await wait(300);
+const pulseAfter = await page.locator('[data-testid="btn-instructions"]').getAttribute('data-prompt');  // debe seguir en 1: el pulso es permanente
 const checksHidden = await page.locator('[data-testid="stairs"] svg.text-emerald-500').count();
 const order = await page.locator('[data-deposit]').evaluateAll((els) => els.map((e) => e.getAttribute('data-deposit')).join(','));
 await page.click('[data-testid="btn-eye"]'); await wait(200);
@@ -54,10 +75,22 @@ await page.click('[data-testid="btn-experimenta"]'); await wait(200);
   await page.mouse.move(a.x + 6, a.y + 8); await page.mouse.down(); await page.mouse.move(a.x + 40, a.y + 20, { steps: 4 }); await page.mouse.move(b.x + 80, b.y + 60, { steps: 12 }); await page.mouse.up(); await wait(300); }
 const testPieces = await page.locator('[data-testid="test-piece"]').count(); await shot('04-experimenta');
 await page.click('[data-testid="btn-experimenta"]');
+// Globos de bloqueo (TSD 2 y TSD 3) y orden estricto de la Formulación
+await page.hover('[data-testid="act-TSD2"]'); await wait(250);
+const tipNav = (await page.locator('[data-testid="app-tip"]').filter({ hasText: 'bloqueada' }).first().innerText()).replace(/\s+/g, ' ');
+await shot('03c-globo-tsd2');
 // Formulación
 await page.click('[data-testid="btn-formulation"]'); await wait(300);
+const tabs0 = [];
+for (let q = 1; q <= 4; q++) tabs0.push(await page.locator(`[data-testid="q-tab-${q}"]`).isDisabled());
+await page.locator('[data-testid="q-tab-2"]').locator('..').hover(); await wait(250);
+const tipQ = (await page.locator('[data-testid="formulation-panel"] [data-testid="app-tip"]').nth(0).innerText()).replace(/\s+/g, ' ');
+await shot('05a-globo-pregunta');
 await type('[data-testid="answer-input"]', 'Cada escalón es una unidad más larga que el anterior, siempre crece de uno en uno.');
 await page.click('[data-testid="btn-devolution"]'); await wait(200); await shot('05-formulacion');
+await type('[data-testid="answer-input"]', 'Cada escalón es una unidad más larga que el anterior, siempre crece de uno en uno, por eso es n+1.');
+await page.fill('[data-testid="answer-input"]', 'sí'); await wait(200);   // respuesta mínima: no debe habilitar la P2
+const q2Short = await page.locator('[data-testid="q-tab-2"]').isDisabled();
 await type('[data-testid="answer-input"]', 'Cada escalón es una unidad más larga que el anterior, siempre crece de uno en uno, por eso es n+1.');
 const answers = [
   'La regleta blanca cubre exactamente todas las demás porque cualquier largo es una cantidad de blancas.',
@@ -95,6 +128,14 @@ await put(5, 2, 1400); await put(7, 2, 300);             // 12 pero mal compuest
 await removeFrom(2, 7); await wait(1300); await removeFrom(2, 5); await wait(1300);
 await put(6, 2, 1400); await put(6, 2, 300);
 await shot('09-tsd3-cerca'); const ok3 = await lanesOk();
+await page.click('[data-testid="btn-eye"]'); await wait(250);
+const fenceGreen = await page.locator('[data-testid="fence"][data-all-correct="1"]').count();
+const pillsGreen = await page.locator('[data-testid^="side-L"]').evaluateAll((els) => els.filter((e) => e.className.includes('emerald')).length);
+await shot('09b-cerca-ojo-verde');
+await removeFrom(2, 6); await wait(300); await put(4, 2, 300); await put(2, 2, 300); await wait(300);
+const pillsRed = await page.locator('[data-testid^="side-L"]').evaluateAll((els) => els.filter((e) => e.className.includes('rose')).length);
+await shot('09c-cerca-ojo-rojo'); await removeFrom(2, 4); await wait(300); await removeFrom(2, 2); await wait(300); await put(6, 2, 300); await wait(300);
+await page.click('[data-testid="btn-eye"]'); await wait(250);
 await page.click('[data-testid="btn-anchor"]'); await wait(300);
 await type('[data-testid="bridge-input"]', 'Los cuatro lados suman doce de maneras distintas: repetir 3, o combinar 2+5+5, 4+8 y 6+6.');
 await page.keyboard.press('Escape'); await wait(300);
@@ -113,5 +154,5 @@ const [pdf] = await Promise.all([page.waitForEvent('download', { timeout: 90000 
 await pdf.saveAs(`${OUT}/${pdf.suggestedFilename()}`);
 const rp = await ctx.newPage(); await rp.setViewportSize({ width: 1100, height: 900 }); await rp.goto('file://' + file); await rp.waitForTimeout(600);
 await rp.screenshot({ path: `${OUT}/13-reporte.png`, fullPage: true });
-console.log(JSON.stringify({ checksHidden, checksShown, order, file, pdf: pdf.suggestedFilename(), dragged, ok1, testPieces, lockShown, ok2, ok3, compat, errors }, null, 1));
+console.log(JSON.stringify({ pulse1, pulseCls, didPulse, pulseAfter, fenceGreen, pillsGreen, pillsRed, tabs0, q2Short, tipNav, tipQ, redOutline, devSit, devTexts, checksHidden, checksShown, order, file, pdf: pdf.suggestedFilename(), dragged, ok1, testPieces, lockShown, ok2, ok3, compat, errors }, null, 1));
 await browser.close();

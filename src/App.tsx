@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Activity, Bookmark, Brain, ClipboardList, Eye, EyeOff, FlaskConical, HelpCircle, Lock, RotateCcw, Send, Settings, BookOpen } from 'lucide-react';
+import { Activity, Bookmark, Brain, ClipboardList, Eye, EyeOff, FlaskConical, HelpCircle, Lightbulb, Lock, RotateCcw, Send, Settings, BookOpen } from 'lucide-react';
 import { APP_META, APP_VERSION, BUILD_DATE, INSTITUTION } from './config';
 import { ACTIVITIES, ACTIVITY_META, LANE_COUNT, ROD_CONFIG, TSD3_TOTAL, isLaneCorrect, realTarget, rodOf, visualCapacity } from './data/lab';
 import type { ActivityKey, EventType, LabEvent, Snapshot, TestAreaPiece } from './labTypes';
-import { activityComplete, correctLanes, devolutionPct, stageProgress } from './lib/metrics';
+import { activityComplete, correctLanes, devolutionPct, stageProgress, substantive } from './lib/metrics';
 import { emptyAnchors, emptyAnswers, emptyFormulation, emptyLanes, freshSession, storage } from './lib/storage';
 import AppHeader from './components/AppHeader';
-import { AnchorPanel, FormulationPanel } from './components/Panels';
+import { AnchorPanel, ConstructionDevolution, FormulationPanel } from './components/Panels';
 import { DepositRod, RodBar, TestingArea } from './components/Rods';
 import Scene from './components/Scenes';
+import { laneLabel } from './lib/immzReport';
+import { DEV_TEXT, devLevels } from './data/devolutions';
+import { diagnoseSituation } from './lib/situation';
 import { ConfigModal, ConfirmModal, GuideModal, InstructionsModal, IntroModal, LockModal, MessageModal, type LockInfo } from './components/Modals';
-import { Modal } from './components/ui';
+import { Modal, Tip } from './components/ui';
 import AnalysisView from './views/AnalysisView';
 
 type AnswerKey = 'q1' | 'q2' | 'q3' | 'q4' | 'tsd2Bridge' | 'tsd3Bridge';
@@ -58,6 +61,7 @@ export default function App() {
   const [showAnchor, setShowAnchor] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [showDev, setShowDev] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [order, setOrder] = useState<number[]>(() => shuffledRods());
   const [confirm, setConfirm] = useState<'all' | null>(null);
@@ -73,6 +77,10 @@ export default function App() {
   const actLanes = lanes[act];
   const pieces = testArea[act];
   const complete = activityComplete(snap, act);
+  /* Etapa terminada: pulso verde permanente en «Instrucciones» y, dentro, en «Mirada didáctica» (no se apaga al abrirla) */
+  const prompt = complete;
+  const didacticOpenedAt = useRef<number | null>(null);
+  const openInstructions = () => { setShowInstructions(true); log('instructions_open', act, { payload: { complete, prompted: prompt } }); };
 
   /* ───────── persistencia ───────── */
   useEffect(() => { storage.saveSession({ activeActivity, showIntro, targetUnits, inventoryCount, lanes, testArea, answers, formulationStates, anchorStates, history }); },
@@ -200,6 +208,13 @@ export default function App() {
     setAnchorStates((p) => ({ ...p, [a]: { ...p[a], devolutionLevel: lv, lastUnlockedAt: Date.now() } }));
     log('devolution_request', a, { devolutionLevel: lv, payload: { anchor: true, target: 'anchor_panel' } });
   };
+  /* devolución didáctica de la construcción (TSD 1, 2 y 3) */
+  const situation = useMemo(() => diagnoseSituation(snap, act), [snap, act]);
+  const devLv = devLevels(history)[situation.key] ?? 0;
+  const requestConstruction = () => {
+    const sit = diagnoseSituation(snap, act); const lv = Math.min(3, (devLevels(history)[sit.key] ?? 0) + 1); if (lv === (devLevels(history)[sit.key] ?? 0)) return;
+    log('devolution_request', act, { laneIndex: sit.laneIndex, devolutionLevel: lv, payload: { scope: 'construction', case: sit.case, key: sit.key, lane: sit.laneIndex ?? null, correctLanes: correctLanes(snap, act), anchor: false } });
+  };
   const openFormulation = () => {
     setShowFormulation(true); log('formulation_panel_open', 'TSD1');
     if (correctLanes(snap, 'TSD1') >= 5) log('question_open', 'TSD1', { questionId: 1 });
@@ -207,25 +222,33 @@ export default function App() {
   const openAnchor = () => { if (act === 'TSD1') return; setShowAnchor(true); log('anchor_open', act); };
 
   /* ───────── navegación con bloqueos pedagógicos ───────── */
-  const form1Done = (['q1', 'q2', 'q3', 'q4'] as const).every((k) => answers[k].trim().length > 0);
+  const Q_TITLES = [['q1', 'Pregunta 1: observación de la regularidad'], ['q2', 'Pregunta 2: búsqueda de una medida común'], ['q3', 'Pregunta 3: del largo al nombre numérico'], ['q4', 'Pregunta 4: relación entre escalones sucesivos']] as const;
+  const form1Done = Q_TITLES.every(([k]) => substantive(answers[k]));
+  const bridge2Done = substantive(answers.tsd2Bridge);
+  /* qué falta para entrar a TSD 2 o TSD 3 (alimenta el globo al pasar el mouse y la ventana de bloqueo) */
+  const lockNeeds = (a: ActivityKey): string[] => {
+    const out: string[] = [];
+    if (a !== 'TSD1' && !form1Done) out.push(`Responde con tus palabras las preguntas de Formulación en TSD 1. Te faltan: ${Q_TITLES.filter(([k]) => !substantive(answers[k])).map(([k]) => k.toUpperCase()).join(', ')}.`);
+    if (a === 'TSD3' && !bridge2Done) out.push('Responde la pregunta puente del Anclaje en TSD 2.');
+    return out;
+  };
   const switchTo = (to: ActivityKey) => {
     flushAll(); if (to === act) { setView('lab'); return; }
     const goForm = () => { setLock(null); setActive('TSD1'); openFormulation(); };
     if ((to === 'TSD2' || to === 'TSD3') && !form1Done) {
-      const miss = [['q1', 'Pregunta 1: observación de la regularidad'], ['q2', 'Pregunta 2: búsqueda de una medida común'], ['q3', 'Pregunta 3: del largo al nombre numérico'], ['q4', 'Pregunta 4: relación entre escalones sucesivos']] as const;
       setLock({ title: `Acceso bloqueado: ${ACTIVITY_META[to].short}`, badge: 'Formulación TSD 1 requerida', actionLabel: 'Ir a Formulación TSD 1', onAction: goForm,
         message: to === 'TSD2' ? 'Para ingresar a la TSD 2 (El Puente) debes haber contestado todas las preguntas del componente «Formulación» en la TSD 1 (El Volantín).' : 'Para avanzar a la TSD 3 (La Cerca) primero debes contestar todas las preguntas de Formulación en TSD 1 y el Anclaje en TSD 2.',
-        missing: miss.filter(([k]) => !answers[k].trim()).map(([, t]) => t) });
+        missing: Q_TITLES.filter(([k]) => !substantive(answers[k])).map(([, t]) => t) });
       return;
     }
-    if (to === 'TSD3' && !answers.tsd2Bridge.trim()) {
+    if (to === 'TSD3' && !bridge2Done) {
       setLock({ title: 'Acceso bloqueado: TSD 3 (La Cerca)', badge: 'Anclaje TSD 2 requerido', message: 'Para acceder a la TSD 3 (La Cerca) debes haber completado la reflexión del componente «Anclaje» en la TSD 2 (El Puente).', missing: ['Responder la pregunta puente en el Anclaje de TSD 2'], actionLabel: 'Ir a Anclaje TSD 2',
         onAction: () => { setLock(null); setActive('TSD2'); setShowAnchor(true); log('anchor_open', 'TSD2'); } });
       return;
     }
     const first = !history.some((e) => e.activity === to);
     log('activity_switch', to, { payload: { from: act, to } }); setActive(to); setSelected(null); setView('lab');
-    if (first) setShowInstructions(true);
+    if (first) { setShowInstructions(true); log('instructions_open', to, { payload: { auto: true, complete: false, prompted: false } }); }
   };
 
   /* ───────── reinicios ───────── */
@@ -245,8 +268,9 @@ export default function App() {
     <button key={key} onClick={onClick} data-testid={testid} role="tab" aria-selected={on} className={`flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-[13px] transition ${on ? 'bg-brand-500 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{icon}{label}</button>);
   const navTabs = (short: boolean) => (<>
     {ACTIVITIES.map((a) => {
-      const locked = (a === 'TSD2' && !form1Done) || (a === 'TSD3' && (!form1Done || !answers.tsd2Bridge.trim()));
-      return navBtn(a, a.replace('TSD', 'TSD '), view === 'lab' && a === act, () => switchTo(a), locked ? <Lock size={12} /> : null, `act-${a}`);
+      const needs = lockNeeds(a); const locked = needs.length > 0;
+      const btn = navBtn(a, a.replace('TSD', 'TSD '), view === 'lab' && a === act, () => switchTo(a), locked ? <Lock size={12} /> : null, `act-${a}`);
+      return short ? btn : <Tip key={a} title={`${ACTIVITY_META[a].short} bloqueada`} lines={needs}>{btn}</Tip>;
     })}
     {navBtn('analysis', short ? 'Análisis' : 'Análisis del participante', view === 'analysis', () => { flushAll(); setView('analysis'); }, <Activity size={13} />, 'tab-analysis')}
   </>);
@@ -257,9 +281,10 @@ export default function App() {
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-chrome-bg">
       <IntroModal open={showIntro} onStart={() => { setShowIntro(false); setShowInstructions(true); }} />
-      <InstructionsModal open={showInstructions && !showIntro} act={act} targetUnits={targetUnits} complete={complete}
+      <InstructionsModal open={showInstructions && !showIntro} act={act} targetUnits={targetUnits} complete={complete} pulseDidactic={prompt}
         onClose={() => setShowInstructions(false)}
-        onDidacticClose={() => log('didactic_view', act)} />
+        onDidacticOpen={() => { didacticOpenedAt.current = Date.now(); log('didactic_view', act, { payload: { phase: 'open' } }); }}
+        onDidacticClose={() => { const t0 = didacticOpenedAt.current; didacticOpenedAt.current = null; log('didactic_close', act, { payload: { seconds: t0 ? Math.round((Date.now() - t0) / 1000) : 0 } }); }} />
       <MessageModal open={showMessage} act={act} snap={snap} complete={complete}
         onClose={() => setShowMessage(false)}
         onReport={() => { setShowMessage(false); flushAll(); setView('analysis'); }} />
@@ -271,6 +296,12 @@ export default function App() {
         onTarget={(n) => { setTargetUnits(n); log('config_change', 'TSD2', { payload: { setting: 'targetUnits', value: n } }); }} inventoryCount={inventoryCount}
         onInventory={(n) => { const v = Math.max(1, Math.min(10, n || 1)); setInventoryCount(v); log('config_change', act, { payload: { setting: 'inventoryCountPerPiece', value: v } }); }}
         showNumbers={showNumbers} onNumbers={setShowNumbers} showCounter={showCounter} onCounter={setShowCounter} onResetStage={resetStage} />
+      <Modal open={showDev} onClose={() => setShowDev(false)} size="lg" title="Devolución didáctica">
+        <ConstructionDevolution stageName={ACTIVITY_META[act].short} situationLabel={situation.laneIndex !== undefined ? laneLabel(act, situation.laneIndex) : 'Tu construcción completa'}
+          texts={DEV_TEXT[act][situation.case].map((t) => t.replace('{lane}', situation.laneIndex !== undefined ? laneLabel(act, situation.laneIndex) : 'carril'))} level={devLv} onRequest={requestConstruction}
+          onOpenTesting={() => { setShowDev(false); setShowTesting(true); log('test_area_open', act, { payload: { open: true } }); }}
+          onOpenFormulation={situation.case === 'completa' ? () => { setShowDev(false); if (act === 'TSD1') openFormulation(); else openAnchor(); } : undefined} />
+      </Modal>
       <Modal open={showFormulation} onClose={() => { flushAll(); setShowFormulation(false); }} size="3xl" title="Formulación">
         <FormulationPanel correctLanes={correctLanes(snap, 'TSD1')} answers={answers} states={formulationStates} onAnswer={(q, t) => setAnswer(`q${q}` as AnswerKey, t)} onFlush={flushAll}
           onRequest={requestFormulation} onOpenQuestion={(q) => log('question_open', 'TSD1', { questionId: q })} onOpenTesting={() => { flushAll(); setShowFormulation(false); setShowTesting(true); log('test_area_open', act, { payload: { open: true } }); }} />
@@ -314,9 +345,10 @@ export default function App() {
                     <p className="mt-1 max-w-3xl text-sm text-slate-600">{act === 'TSD2' ? `Reconstruye las 4 vías de paso del puente cubriendo cada una exactamente con regletas.` : act === 'TSD1' ? 'Completa cada escalón con regletas para que Pedro pueda alcanzar su volantín.' : 'Cerca el perímetro de la casa: cada lado mide 12 unidades y debe cumplir su pista lógica.'}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button className="btn-ghost" onClick={() => setShowInstructions(true)} data-testid="btn-instructions"><BookOpen size={14} />Instrucciones</button>
+                    <button className={`btn-ghost ${prompt ? 'pulse-ok' : ''}`} onClick={openInstructions} data-testid="btn-instructions" data-prompt={prompt ? '1' : '0'}><BookOpen size={14} />Instrucciones</button>
                     <button className={`btn-ghost ${showTesting ? '!border-accent/60 !bg-accent-soft' : ''}`} onClick={() => toggleTesting(!showTesting)} data-testid="btn-experimenta"><FlaskConical size={14} />Experimenta</button>
-                    <button className="btn-ghost" onClick={() => { setShowMessage(true); log('message_view', act); }} data-testid="btn-message"><Send size={14} />Mensaje</button>
+                    <button className="btn-primary !bg-accent hover:!bg-amber-600" onClick={() => setShowDev(true)} data-testid="btn-devolution-construction"><Lightbulb size={14} />Devolución</button>
+                    <button className="btn-ghost" onClick={() => { setShowMessage(true); log('message_view', act, { payload: { complete } }); }} data-testid="btn-message"><Send size={14} />Mensaje</button>
                     {act === 'TSD1' ? <button className="btn-primary" onClick={openFormulation} data-testid="btn-formulation"><Brain size={14} />Formulación</button> : <button className="btn-primary" onClick={openAnchor} data-testid="btn-anchor"><Bookmark size={14} />Anclaje</button>}
                   </div>
                 </div>

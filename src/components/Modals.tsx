@@ -22,7 +22,7 @@ export function IntroModal({ open, onStart }: { open: boolean; onStart: () => vo
   );
 }
 
-export function InstructionsModal({ open, act, targetUnits, complete, onClose, onDidacticClose }: { open: boolean; act: ActivityKey; targetUnits: number; complete: boolean; onClose: () => void; onDidacticClose: () => void }) {
+export function InstructionsModal({ open, act, targetUnits, complete, pulseDidactic, onClose, onDidacticOpen, onDidacticClose }: { open: boolean; act: ActivityKey; targetUnits: number; complete: boolean; pulseDidactic: boolean; onClose: () => void; onDidacticOpen: () => void; onDidacticClose: () => void }) {
   const [didactic, setDidactic] = useState(false);
   useEffect(() => { if (!open) setDidactic(false); }, [open]);
   const t = INTRO[act];
@@ -53,7 +53,7 @@ export function InstructionsModal({ open, act, targetUnits, complete, onClose, o
         <div><p className="micro mb-2">Misión · pasos 1 al 4</p><ol className="space-y-2">{t.steps.map((s, i) => <li key={i} className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-500 font-title">{i + 1}</span><span>{s}</span></li>)}</ol></div>
       </div>
       <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-        <button className="btn-ghost justify-center sm:flex-1" disabled={!complete} data-testid="btn-didactic" onClick={() => setDidactic(true)}>{!complete && <Lock size={13} />}Mirada didáctica</button>
+        <button className={`btn-ghost justify-center sm:flex-1 ${complete && pulseDidactic ? 'pulse-ok' : ''}`} disabled={!complete} data-testid="btn-didactic" onClick={() => { setDidactic(true); onDidacticOpen(); }}>{!complete && <Lock size={13} />}Mirada didáctica</button>
         <button className="btn-primary justify-center sm:flex-[2]" data-testid="btn-close-instructions" onClick={() => onClose()}>Comenzar operación<ChevronRight size={14} /></button>
       </div>
     </Modal>

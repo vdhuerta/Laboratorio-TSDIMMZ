@@ -15,7 +15,9 @@ export type EventType =
   | 'validation_success' // un carril queda en su configuración correcta
   | 'activity_complete'  // todos los carriles de la actividad quedan correctos
   | 'activity_switch'    // cambia de TSD
-  | 'didactic_view'      // abre la «Mirada Didáctica»
+  | 'instructions_open'  // abre las Instrucciones (payload: complete, prompted = el pulso verde la invitaba)
+  | 'didactic_view'      // abre la «Mirada Didáctica» (payload: phase 'open')
+  | 'didactic_close'     // cierra la «Mirada Didáctica» (payload: seconds)
   | 'message_view'       // abre el «Mensaje encriptado»
   | 'config_change';
 

@@ -18,6 +18,9 @@ export const IM1_MIN_MS = 1200;          // pausa mínima entre dos colocaciones
 export const IM1_MAX_MS = 90000;         // pausa máxima (más allá se interpreta como desconexión)
 export const TEST_EPISODE_GAP_MS = 60000; // piezas colocadas en Experimenta con menos de 60 s entre sí = un mismo episodio
 export const FEEDBACK_WINDOW_MS = 300000; // IM4: ventana de 5 min para que una devolución se traduzca en un reajuste
+export const IM2_W_AFTER_MS = 180000;     // IM2 v2: un acto sin carril se atribuye a la primera manipulación de los 180 s siguientes…
+export const IM2_W_BEFORE_MS = 120000;    // …o, si no hay, a la última manipulación de los 120 s anteriores
+export const SCORING_VERSION = 2;         // versión del cálculo de IM2 (ESTANDAR-IM2.md); los reportes sin este campo son versión 1
 export const MIN_ANSWER_CHARS = 25;       // IM10: una respuesta formal debe tener al menos 25 caracteres…
 export const MIN_ANSWER_WORDS = 4;        // …y 4 palabras
 
@@ -48,7 +51,7 @@ export const IM_TEXT: Record<string, { hi: string; mid: string; low: string; non
 };
 
 /* ───────────── utilidades de lectura de la traza ───────────── */
-const substantive = (s: string | undefined) => { const t = (s ?? '').trim(); return t.length >= MIN_ANSWER_CHARS && t.split(/\s+/).filter(Boolean).length >= MIN_ANSWER_WORDS; };
+export const substantive = (s: string | undefined) => { const t = (s ?? '').trim(); return t.length >= MIN_ANSWER_CHARS && t.split(/\s+/).filter(Boolean).length >= MIN_ANSWER_WORDS; };
 const laneKey = (e: LabEvent) => `${e.activity}:${e.laneIndex}`;
 const isErr = (e: LabEvent) => e.type === 'place' && (e.payload?.isOverflow === true || e.payload?.isWrong === true);
 
@@ -73,6 +76,39 @@ export function reflectiveActs(snap: Snapshot, scope?: ActivityKey) {
   return { episodes, opened: opened.size, devs, answered, total: episodes + opened.size + devs + answered };
 }
 
+
+/** IM2 v2 · cobertura reflexiva por unidad de trabajo (carril). Ver ESTANDAR-IM2.md. */
+export interface Im2Unit { activity: ActivityKey; unit: number; credit: number; acts: string[] }
+export function im2Detail(events: LabEvent[]): { units: Im2Unit[]; credit: number; worked: number } {
+  const E = events.slice().sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
+  const manips = E.filter((e) => (e.type === 'place' || e.type === 'remove') && e.laneIndex !== undefined);
+  const units = new Map<string, Im2Unit>();
+  manips.forEach((m) => { const k = `${m.activity}:${m.laneIndex}`; if (!units.has(k)) units.set(k, { activity: m.activity, unit: m.laneIndex!, credit: 0, acts: [] }); });
+  const mark = (u: Im2Unit | undefined, code: string) => { if (u && !u.acts.includes(code)) u.acts.push(code); };
+  // atribución temporal de un acto sin carril: primera manipulación ≤ 180 s después; si no hay, la última ≤ 120 s antes
+  const attribute = (activity: ActivityKey, t: number): Im2Unit | undefined => {
+    const ms = manips.filter((m) => m.activity === activity);
+    const next = ms.find((m) => m.timestamp >= t && m.timestamp - t <= IM2_W_AFTER_MS);
+    const prev = next ? undefined : [...ms].reverse().find((m) => m.timestamp <= t && t - m.timestamp <= IM2_W_BEFORE_MS);
+    const m = next ?? prev; return m ? units.get(`${m.activity}:${m.laneIndex}`) : undefined;
+  };
+  // AR-EXP: episodios en Experimenta (piezas con < 60 s entre sí = un episodio)
+  (['TSD1', 'TSD2', 'TSD3'] as ActivityKey[]).forEach((a) => {
+    const ts = E.filter((e) => e.activity === a && e.type === 'test_area_use').map((e) => e.timestamp);
+    ts.forEach((t, i) => { if (i === 0 || t - ts[i - 1] > TEST_EPISODE_GAP_MS) mark(attribute(a, t), 'AR-EXP'); });
+  });
+  // AR-DEV: devolución de la construcción (con carril → directo; sin carril → atribución temporal)
+  E.filter((e) => e.type === 'devolution_request' && e.payload?.scope === 'construction').forEach((e) => {
+    mark(e.laneIndex !== undefined ? units.get(`${e.activity}:${e.laneIndex}`) : attribute(e.activity, e.timestamp), 'AR-DEV');
+  });
+  // AR-ACT: apoyos de actividad (preguntas, anclaje, Mirada didáctica, devoluciones de formulación/anclaje)
+  const actAct = new Set<ActivityKey>();
+  E.forEach((e) => { if (e.type === 'question_open' || e.type === 'anchor_open' || e.type === 'didactic_view' || (e.type === 'devolution_request' && e.payload?.scope !== 'construction')) actAct.add(e.activity); });
+  let credit = 0;
+  units.forEach((u) => { u.credit = u.acts.length ? 1 : actAct.has(u.activity) ? 0.5 : 0; if (u.credit === 0.5) u.acts.push('AR-ACT'); credit += u.credit; });
+  return { units: [...units.values()].sort((a, b) => a.activity.localeCompare(b.activity) || a.unit - b.unit), credit, worked: units.size };
+}
+
 /* ───────────── los 10 indicadores ───────────── */
 export function computeIndicators(snap: Snapshot, scope?: ActivityKey): IndicatorResult[] {
   const E = (scope ? snap.history.filter((e) => e.activity === scope) : snap.history).slice().sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
@@ -80,6 +116,7 @@ export function computeIndicators(snap: Snapshot, scope?: ActivityKey): Indicato
   const removes = E.filter((e) => e.type === 'remove');
   const manip = places.length + removes.length;
   const devs = E.filter((e) => e.type === 'devolution_request');
+  const im2 = im2Detail(E);
   const refl = reflectiveActs(snap, scope);
 
   // IM1 · Vigilancia: pares de colocaciones/retiros CONSECUTIVOS (sin otro evento en medio) separados por 1,2–90 s
@@ -101,9 +138,20 @@ export function computeIndicators(snap: Snapshot, scope?: ActivityKey): Indicato
     if (E.some((e, i) => i > last && e.type === 'validation_success' && laneKey(e) === k)) errScore += 50;
   });
 
-  // IM4 · Retroalimentación: devoluciones seguidas de una acción de reajuste en ≤ 5 min
+  // IM4 · Retroalimentación: devoluciones seguidas de una acción de reajuste en ≤ 5 min.
+  //   · devolución de construcción con carril → reajuste = colocar/retirar en ESE carril
+  //   · devolución de construcción sin carril → colocar/retirar/Experimenta en la actividad
+  //   · devolución de formulación o anclaje → respuesta escrita/revisada o cualquier manipulación de la actividad
   const ACT = new Set(['place', 'remove', 'test_area_use', 'question_answer', 'answer_revision']);
-  const effective = devs.filter((d) => { const di = E.indexOf(d); return E.some((e, i) => i > di && e.activity === d.activity && ACT.has(e.type) && e.timestamp - d.timestamp <= FEEDBACK_WINDOW_MS); }).length;
+  const effective = devs.filter((d) => {
+    const di = E.indexOf(d); const construction = d.payload?.scope === 'construction';
+    return E.some((e, i) => {
+      if (i <= di || e.activity !== d.activity || !ACT.has(e.type) || e.timestamp - d.timestamp > FEEDBACK_WINDOW_MS) return false;
+      if (!construction) return true;
+      if (d.laneIndex !== undefined) return (e.type === 'place' || e.type === 'remove') && e.laneIndex === d.laneIndex;
+      return e.type === 'place' || e.type === 'remove' || e.type === 'test_area_use';
+    });
+  }).length;
 
   // IM5 · Resiliencia: tras un error, la siguiente acción en ese carril es un retiro o una pieza de otro largo
   let adapt = 0;
@@ -113,7 +161,7 @@ export function computeIndicators(snap: Snapshot, scope?: ActivityKey): Indicato
   let jumps = 0;
   (scope ? [scope] : ACTIVITIES).forEach((a) => {
     const firstPlace = E.findIndex((e) => e.activity === a && e.type === 'place');
-    const askedEarly = E.some((e, i) => e.activity === a && e.type === 'devolution_request' && (firstPlace === -1 || i < firstPlace));
+    const askedEarly = E.some((e, i) => e.activity === a && e.type === 'devolution_request' && e.payload?.scope !== 'construction' && (firstPlace === -1 || i < firstPlace));
     if (askedEarly) jumps++;
     if (a !== 'TSD1') {
       const firstBridge = E.findIndex((e) => e.activity === a && e.type === 'question_answer' && e.payload?.bridge === true && e.payload?.empty !== true);
@@ -142,7 +190,7 @@ export function computeIndicators(snap: Snapshot, scope?: ActivityKey): Indicato
 
   const rows: Omit<IndicatorResult, 'feedback'>[] = [
     { code: 'IM1', value: vigDen > 0 ? pct(vig, vigDen) : null, numerator: vig, denominator: vigDen, formula: 'pares de colocaciones/retiros consecutivos con pausa de 1,2–90 s ÷ pares consecutivos' },
-    { code: 'IM2', value: manip > 0 ? Math.min(100, pct(refl.total, manip)) : null, numerator: refl.total, denominator: manip, formula: '(episodios en Experimenta + preguntas abiertas + devoluciones + respuestas escritas) ÷ (colocaciones + retiros), tope 100' },
+    { code: 'IM2', value: im2.worked > 0 ? Math.round((im2.credit / im2.worked) * 100) : null, numerator: Math.round(im2.credit * 10) / 10, denominator: im2.worked, formula: 'carriles trabajados con un acto reflexivo atribuido (Experimenta o devolución = 1; solo apoyo de la actividad = 0,5) ÷ carriles trabajados' },
     { code: 'IM3', value: errLanes.length > 0 ? Math.round(errScore / errLanes.length) : null, numerator: errScore, denominator: errLanes.length, formula: 'por carril con error: 50 si retiró piezas tras el error + 50 si luego lo validó; promedio' },
     { code: 'IM4', value: devs.length > 0 ? pct(effective, devs.length) : null, numerator: effective, denominator: devs.length, formula: 'devoluciones seguidas de una acción de reajuste en ≤ 5 min ÷ devoluciones solicitadas' },
     { code: 'IM5', value: errIdx.length > 0 ? pct(adapt, errIdx.length) : null, numerator: adapt, denominator: errIdx.length, formula: 'errores (exceso de meta o lado mal compuesto) seguidos de retiro o pieza distinta en el mismo carril ÷ errores' },
@@ -161,7 +209,7 @@ export function phaseJumps(snap: Snapshot): string[] {
   const out: string[] = [];
   ACTIVITIES.forEach((a) => {
     const firstPlace = E.findIndex((e) => e.activity === a && e.type === 'place');
-    if (E.some((e, i) => e.activity === a && e.type === 'devolution_request' && (firstPlace === -1 || i < firstPlace))) out.push(`${a}: devolución solicitada antes de actuar`);
+    if (E.some((e, i) => e.activity === a && e.type === 'devolution_request' && e.payload?.scope !== 'construction' && (firstPlace === -1 || i < firstPlace))) out.push(`${a}: devolución solicitada antes de actuar`);
     if (a !== 'TSD1') {
       const fb = E.findIndex((e) => e.activity === a && e.type === 'question_answer' && e.payload?.bridge === true && e.payload?.empty !== true);
       const done = E.findIndex((e) => e.activity === a && e.type === 'activity_complete');
@@ -204,7 +252,7 @@ export function computeStats(snap: Snapshot): SessionStats {
   const accuracy = Math.min(100, (hits / TOTAL_LANES) * 100);
   const efficiency = places.length > 0 ? Math.min(100, (kept / places.length) * 100) : 0;
   const answered = promptKeys().filter((k) => (snap.answers[k] ?? '').trim().length > 0).length;
-  const devolutions = Object.values(snap.formulationStates).reduce((s, q) => s + q.devolutionLevel, 0) + snap.anchorStates.TSD2.devolutionLevel + snap.anchorStates.TSD3.devolutionLevel;
+  const devolutions = E.filter((e) => e.type === 'devolution_request').length;
   const reflection = Math.min(100, ((answered + devolutions) / 10) * 100);
   const hasEvidence = E.length > 0 || answered > 0;
   let touched = 0; ACTIVITIES.forEach((a) => { for (let i = 0; i < LANE_COUNT[a]; i++) if (laneLengths(snap, a, i).length) touched++; });

@@ -21,7 +21,7 @@ const TABS: { key: Tab; label: string; icon: LucideIcon }[] = [
 const EVENT_LABEL: Record<string, string> = {
   place: 'Colocó una regleta', remove: 'Quitó una regleta', test_area_open: 'Abrió Experimenta', test_area_use: 'Usó Experimenta', question_open: 'Abrió una pregunta', question_answer: 'Registró una respuesta', answer_revision: 'Revisó su respuesta',
   devolution_request: 'Pidió una devolución', anchor_open: 'Abrió el anclaje', formulation_panel_open: 'Abrió la formulación', validation_success: 'Carril validado', activity_complete: 'Actividad completada', activity_switch: 'Cambió de TSD',
-  didactic_view: 'Mirada didáctica', message_view: 'Mensaje encriptado', config_change: 'Cambio de configuración',
+  instructions_open: 'Abrió las instrucciones', didactic_view: 'Abrió la Mirada didáctica', didactic_close: 'Cerró la Mirada didáctica', message_view: 'Mensaje encriptado', config_change: 'Cambio de configuración',
 };
 interface Props { snap: Snapshot; classNumber: number | null; name: string; onName: (n: string) => void; onClear: () => void; onFlush: () => void }
 
