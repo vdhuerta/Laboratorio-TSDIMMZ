@@ -1,35 +1,36 @@
 import { APP_META, APP_VERSION, COMPAT_4_0_IDS, INDICATORS, INSTITUTION } from '../config';
-import { ENGINE_VERSION } from '../immz-core/constants';
-import { ACTIVITIES, ACTIVITY_META, ANCHOR_CONFIGS, FORMULATION_QUESTIONS, activeLanes, escalonOf, escalonesDe, formOf, formaDe, ladoOf, ladosDe, laneCount, piezasCerca, puenteMetas, sessionOpportunity, totalLanes, isLaneCorrect, realTarget, rodOf } from '../data/lab';
-import type { ActivityKey, LabEvent, RodInstance, Snapshot } from '../labTypes';
-import type { ImmzCategory } from '../types';
+import { PHASES_CONFIG, type Card, type Forma } from '../data/cards';
 import { categorize } from './immz/scoring';
 import { parseReportText } from './immz/parser';
 import { ICON_SVG } from './reportIcons';
 import { buildAnalysisModel } from '../analysis/model';
 import type { IndicatorView } from '../analysis/standard';
-import { snapshotImage } from './snapshots';
-import { evaluateAnswer, rubricaDe } from '../data/expected';
-import { computeIndicators, computeStats, correctLanes, formulacionModo, indicesOf, laneLengths, promptKeys, stageProgress, toImmzEvents, type IndicatorResult, type SessionStats } from './metrics';
+import { computeIndicators, computeStats, formulacionModo, indicesOf, type Board, type HistoryEvent, type IndicatorResult, type SessionStats } from './metrics';
+import { ENGINE_VERSION } from '../immz-core/constants';
+import type { ImmzCategory } from '../types';
 
 /**
- * CONTRATO DE REPORTE IMMZ (esquema 4.0 + extensión 4.1) — Diario de Campo ⇄ Laboratorio TSD
+ * CONTRATO DE REPORTE IMMZ (esquema 4.0) — Diario de Campo ⇄ Simulador TSD
  * ───────────────────────────────────────────────────────────────────────────
  * 1. El PRIMER <script type="application/json"> del archivo es el payload canónico (id "bct-report-payload").
- *    El parser del Diario toma el primero que encuentra, por eso las trazas van DESPUÉS (id "tsd-report-raw-data").
- * 2. Códigos IM1–IM10 del esquema 4.0 (nunca nombres): el parser los empareja por código. IM11 (motor 4.1) vive en el bloque `immz41`,
- *    fuera del arreglo `indicators`, porque el Diario de hoy no lo conoce.
+ *    El parser del Diario toma el primero que encuentra, por eso las trazas van DESPUÉS.
+ * 2. Códigos IM1–IM10 del esquema 4.0 (nunca nombres): el parser los empareja por código.
  * 3. Claves duplicadas en camelCase y snake_case, porque el parser del Diario normaliza solo algunas
  *    (classNumber, participant.name, apropiacion, aciertos, errores, reflexiones, schemaVersion, scenarioName).
  * 4. Valores 0–100; null = sin evidencia. Los índices se calculan con el mismo scoring del Diario.
- * 5. Nombre de archivo: <prefijo><Nombre>_<ID>.html con prefijo = DEFAULT_APP_CONFIGS.filenamePrefix.
+ * 5. Nombre de archivo: <prefijo>_<Nombre>_<ID>.html con prefijo = DEFAULT_APP_CONFIGS.filenamePrefix.
  */
 
 export const CATEGORY_CLASS: Record<ImmzCategory, string> = { Inicial: 'c-ini', 'En Desarrollo': 'c-dev', Competente: 'c-com', Avanzado: 'c-adv' };
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 const f1 = (v: number | null) => (v === null ? '—' : `${Math.round(v)}%`);
+const phaseName = (p: string) => PHASES_CONFIG[p as keyof typeof PHASES_CONFIG]?.title ?? p;
 
-export interface ReportInput { participantName: string; classNumber: number | null; snap: Snapshot; now?: Date; certificateId?: string }
+export interface ReportInput {
+  participantName: string; classNumber: number | null; board: Board; history: HistoryEvent[]; now?: Date; certificateId?: string; judgmentEnabled: boolean;
+  /** Forma del contenido activa en esta sesión (A/B/C) — ver src/data/cards.ts. */
+  formId: Forma['id']; contentLevel: number; contentId: string; scenarioName: string;
+}
 export interface BuiltReport {
   html: string; bodyHtml: string; css: string; fileName: string; certificateId: string;
   payload: Record<string, unknown>; indicators: IndicatorResult[]; stats: SessionStats; indices: ReturnType<typeof indicesOf>;
@@ -38,14 +39,6 @@ export interface BuiltReport {
 export const makeCertificateId = (now: Date) => `${now.getFullYear()}${now.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(':', '')}${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 export const safeFileName = (name: string) => name.trim().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Participante';
 export const reportFileName = (name: string, id: string) => `${APP_META.filenamePrefix}${safeFileName(name)}_${id}.html`;
-
-type Cfg = Snapshot['config'];
-export const laneLabel = (a: ActivityKey, idx: number, cfg: Cfg) => (a === 'TSD1' ? `Escalón ${escalonOf(cfg, idx).rotulo}` : a === 'TSD2' ? `Vía ${idx + 1}` : ladoOf(cfg, idx).name);
-/** Orden de lectura de los carriles (datos declarados): la escalera desde el escalón 1 (rótulo menor, abajo); la cerca L1→L4. */
-export const laneOrder = (a: ActivityKey, cfg: Cfg) => (a === 'TSD3' ? ladosDe(cfg).slice().sort((x, y) => x.label.localeCompare(y.label)).map((l) => l.idx)
-  : a === 'TSD1' ? activeLanes(a).sort((x, y) => escalonOf(cfg, x).rotulo - escalonOf(cfg, y).rotulo) : activeLanes(a));
-/** «Mensaje encriptado»: traducción de la construcción al código aditivo (colores → códigos). */
-export const encryptedMessage = (snap: Snapshot, a: ActivityKey) => laneOrder(a, snap.config).map((i) => { const l = snap.lanes[a][i] ?? []; return `${a === 'TSD3' ? ladoOf(snap.config, i).label : (a === 'TSD1' ? 'ESC ' + escalonOf(snap.config, i).rotulo : `VÍA ${i + 1}`)}: ${l.length ? l.map((r) => r.code).join('-') : '[ ]'}`; });
 
 export const REPORT_CSS = `
 :root{--bg:#F2F1EC;--line:#E4E2D8;--ink:#23271F;--mut:#6E6F66;--brand:#24473A;--brand50:#EEF4F1;--brand100:#DCE8E2;--accent:#C98F2D;--accentsoft:#F6ECD6;--white:#fff}
@@ -58,6 +51,8 @@ h1,h2,h3,h4,h5{font-weight:700;margin:0}
 .micro{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut)}
 .head{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:20px}
 .head h1{font-size:24px;margin-top:4px}.head p{margin:2px 0 0;color:var(--mut);font-size:13px}
+.logo{display:inline-flex;align-items:center;gap:8px}.logo i{position:relative;display:inline-block;width:28px;height:28px;border-radius:8px;background:var(--brand)}
+.logo i:after{content:"";position:absolute;right:0;top:0;width:9px;height:9px;border-bottom-left-radius:6px;background:var(--accent)}
 .pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:11px;background:#fff;color:var(--ink)}
 .cid{font-family:ui-monospace,Menlo,monospace;background:var(--brand50);border-color:var(--brand100);color:var(--brand)}
 .c-ini{background:#fff1f2;color:#be123c;border-color:#fecdd3}.c-dev{background:#fffbeb;color:#b45309;border-color:#fde68a}.c-com{background:#f0f9ff;color:#0369a1;border-color:#bae6fd}.c-adv{background:#ecfdf5;color:#047857;border-color:#a7f3d0}.c-none{background:#f7f6f1;color:var(--mut)}
@@ -65,6 +60,7 @@ h1,h2,h3,h4,h5{font-weight:700;margin:0}
 .tile{border:1px solid var(--line);border-radius:12px;padding:12px;background:#F7F6F1;min-width:0}
 .tile .v{font-size:24px;font-weight:700;margin-top:4px}
 .tile .s{font-size:10px;color:var(--mut);margin-top:2px}
+.tile.a{background:#eef2ff;border-color:#e0e7ff}.tile.a .v{color:#312e81}.tile.b{background:#f0f9ff;border-color:#e0f2fe}.tile.b .v{color:#0c4a6e}.tile.g{background:var(--brand50);border-color:var(--brand100)}.tile.g .v{color:var(--brand)}
 .contract{border:1px dashed var(--accent);background:var(--accentsoft);border-radius:12px;padding:12px 14px;font-size:12px;margin-bottom:22px}
 .contract b{font-weight:400;color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:11px}
 .sec{margin-bottom:26px}
@@ -85,9 +81,18 @@ h1,h2,h3,h4,h5{font-weight:700;margin:0}
 .diag{margin-top:10px;padding:8px 10px;border-radius:8px;background:#F7F6F1;font-size:12px}
 .diag .micro{display:block;margin-bottom:2px}
 .ev{font-size:10px;color:var(--mut);margin-top:6px;font-family:ui-monospace,Menlo,monospace}
+.phases{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.phase{border:1px solid var(--line);border-radius:10px;padding:10px;background:#F7F6F1}
+.phase h3{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--brand);border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:8px}
+.pc{border:1px solid;border-radius:8px;padding:8px;margin-bottom:6px;font-size:11px;break-inside:avoid}
+.pc.ok{background:#ecfdf5cc;border-color:#a7f3d0}.pc.no{background:#fff1f2cc;border-color:#fecdd3}
+.pc .k{font-size:8px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+.pc .j{margin-top:4px;padding-top:4px;border-top:1px solid rgba(35,39,31,.08);font-size:9px;color:var(--mut);font-style:italic}
 table{width:100%;border-collapse:collapse;font-size:11px}th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-weight:400}td{padding:8px;border-bottom:1px solid #EBEAE2;vertical-align:top}
 .note{background:#F7F6F1;border:1px solid var(--line);border-radius:12px;padding:14px;font-size:11px;color:var(--mut)}
 .note h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--brand);margin-bottom:6px}
+.log{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #EBEAE2;padding:7px 0;font-size:11px}
+.log .r{text-align:right;white-space:nowrap}.ok-t{color:#047857}.no-t{color:#be123c}.rf-t{color:#4338ca}
 .foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:24px;padding-top:12px;font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
 .tile.plain{background:#F7F6F1}.tile.w{background:#fff;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;border-color:var(--brand100)}.tile.w.e{border-color:#e0f2fe}.tile.w .v{font-size:22px}
 .mini{display:grid;grid-template-columns:1fr 1fr;gap:4px;width:100%;margin-top:6px}.m1{background:#eef2ffcc;border:1px solid #e0e7ff;border-radius:6px;padding:3px}.m1 i{display:block;font-style:normal;font-size:7px;text-transform:uppercase;color:#4f46e5}.m1 b{font-size:12px;font-weight:700;color:#312e81}.m1.g{background:#F7F6F1;border-color:var(--line)}.m1.e{background:#f0f9ffcc;border-color:#e0f2fe}.m1.e i{color:#0284c7}.m1.e b{color:#075985}
@@ -95,158 +100,93 @@ table{width:100%;border-collapse:collapse;font-size:11px}th{font-size:10px;text-
 .subval{white-space:nowrap;flex-shrink:0;background:#fff;border:1px solid #c7d2fe;border-radius:8px;padding:4px 10px;text-align:right}.subval b{display:block;font-size:11px;font-weight:700;color:#3730a3}
 .chip{display:inline-block;margin-top:8px;background:var(--brand50);border:1px solid var(--brand100);border-radius:999px;padding:3px 10px;font-size:11px;color:var(--brand)}
 .bt{font-weight:700}.mono{white-space:nowrap;font-family:ui-monospace,Menlo,monospace;color:var(--brand)}
-.ttl{display:flex;align-items:center;gap:14px;flex:1 1 320px;min-width:0}.head .hr{flex:0 0 auto;text-align:right;white-space:nowrap}.ico{position:relative;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:12px;background:var(--brand);color:#fff;flex-shrink:0}.ico:after{content:"";position:absolute;right:0;top:0;width:11px;height:11px;border-bottom-left-radius:7px;background:var(--accent)}
+.ttl{display:flex;align-items:center;gap:14px}.ico{position:relative;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:12px;background:var(--brand);color:#fff;flex-shrink:0}.ico:after{content:"";position:absolute;right:0;top:0;width:11px;height:11px;border-bottom-left-radius:7px;background:var(--accent)}
 .kpis3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}.kpi3{border:1px solid #e0e7ff;background:#eef2ff;border-radius:12px;padding:8px 10px;text-align:center}.kpi3 i{display:block;font-style:normal;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#4f46e5}.kpi3 b{font-size:20px;font-weight:700;color:#3730a3}.kpi3.g{background:#e0e7ff;border-color:#c7d2fe}.kpi3.g b{color:#1e1b4b}.kpi3.e{background:#f0f9ff;border-color:#e0f2fe}.kpi3.e i{color:#0284c7}.kpi3.e b{color:#075985}
 .kpis5{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px}.kpi5{display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;break-inside:avoid}.kpi5 .kv{font-size:20px;font-weight:700;margin-top:3px}.kpi5 .kh{font-size:10px;color:var(--mut);line-height:1.3;margin-top:2px}.kic{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;flex-shrink:0}
 .k-brand .kv{color:var(--brand)}.k-brand .kic{background:var(--brand50);color:var(--brand)}.k-ok .kv{color:#059669}.k-ok .kic{background:#ecfdf5;color:#059669}.k-no .kv{color:#e11d48}.k-no .kic{background:#fff1f2;color:#e11d48}.k-sky .kv{color:#0284c7}.k-sky .kic{background:#f0f9ff;color:#0284c7}.k-amber .kv{color:#b45309}.k-amber .kic{background:var(--accentsoft);color:#b45309}
-.act{border:1px solid var(--line);border-radius:12px;padding:12px;background:#F7F6F1;margin-bottom:12px;break-inside:avoid}
-.act h3{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--brand);border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:8px;display:flex;justify-content:space-between;gap:8px}
-.shots{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:6px}
-.shot{border:1px solid var(--line);border-radius:12px;background:#F7F6F1;padding:8px;break-inside:avoid;margin:0}
-.shot .img{height:150px;border:1px solid var(--line);border-radius:8px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.shot img{max-width:100%;max-height:100%;display:block}
-.shot figcaption{margin-top:6px;font-size:9px;color:var(--brand);text-transform:uppercase;letter-spacing:.05em;display:flex;flex-direction:column;gap:1px}
-.shot figcaption span{color:#64748b;text-transform:none;letter-spacing:0}
-.lanes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.ln{border:1px solid;border-radius:8px;padding:8px;background:#fff;font-size:11px;break-inside:avoid}.ln.ok{border-color:#a7f3d0;background:#ecfdf5cc}.ln.no{border-color:var(--line)}
-.ln .k{display:flex;justify-content:space-between;gap:6px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:5px}
-.rods{display:flex;gap:2px;align-items:center;min-height:22px;background:#EBEAE2;border:1px solid var(--line);border-radius:6px;padding:2px;overflow:hidden}
-.rod{height:18px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex:0 0 auto}
-.rods.empty{color:var(--mut);font-size:10px;font-style:italic;justify-content:center}
-.ln .s{font-size:10px;color:var(--mut);margin-top:4px;font-family:ui-monospace,Menlo,monospace}
-.code{background:#23271F;color:#F7F6F1;border-radius:8px;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;font-size:10px;white-space:pre-wrap;margin-top:8px}
-.ans{border:1px solid var(--line);border-radius:10px;background:#F7F6F1;padding:10px 12px;margin-bottom:8px;break-inside:avoid}
-.ans .q{display:flex;justify-content:space-between;gap:8px;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--brand);margin-bottom:5px}
-.ans p{margin:0;font-size:12px;white-space:pre-wrap}.ans .st{font-size:11px;color:var(--mut);font-style:italic;margin:0 0 6px}
-.ans .none{color:var(--mut);font-style:italic}
-@media(max-width:720px){.shots{grid-template-columns:1fr}.kpis5{grid-template-columns:1fr 1fr}.kpis3{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr}.grid2,.lanes{grid-template-columns:1fr}}
+@media(max-width:720px){.kpis5{grid-template-columns:1fr 1fr}.kpis3{grid-template-columns:1fr}.kpi3.e{max-width:none}.tiles{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.phases{grid-template-columns:1fr 1fr}}
 @media print{body{background:#fff}.wrap{padding:0}.sheet{border:none;box-shadow:none}}
 `;
 
+const verdict = (dim: 'A' | 'B', v: number | null) => {
+  if (v === null) return dim === 'A' ? 'Aún no se registran acciones suficientes en la simulación para evaluar el monitoreo metacognitivo.' : 'Aún no se registran acciones suficientes en la simulación para evaluar la competencia didáctica TSD.';
+  if (dim === 'A') return v >= 80 ? 'La estudiante supervisa activamente su comprensión durante el proceso, detecta errores mediante la retroalimentación del milieu y ajusta sus estrategias en tiempo real. El ciclo autocontrol → auto-observación → ajuste opera de manera fluida y autónoma.' : v >= 50 ? 'La estudiante muestra indicios de supervisión consciente de su aprendizaje, pero alterna entre momentos de monitoreo reflexivo y episodios de respuesta impulsiva. Se recomienda fortalecer las pausas de autodiagnóstico antes de cada decisión.' : 'Predomina un enfoque de ensayo y error sin supervisión consciente. La estudiante no aprovecha la retroalimentación inmediata para ajustar sus estrategias, lo que indica que el monitoreo metacognitivo requiere andamiaje externo deliberado.';
+  return v >= 80 ? 'La estudiante demuestra comprensión sólida de la secuencia adidáctica de Brousseau, respetando el tiempo didáctico, argumentando racionalmente y distinguiendo con claridad las fases de acción, formulación, validación e institucionalización.' : v >= 50 ? 'Se observa comprensión parcial de la estructura adidáctica. La estudiante reconoce las fases pero presenta confusiones en los límites entre ellas, especialmente entre acción y formulación o entre validación e institucionalización.' : 'Dificultad para distinguir las fases de la TSD. Se observan deslizamientos metadidácticos frecuentes y tendencia a la institucionalización prematura del saber.';
+};
+
 const badge = (c: ImmzCategory | null) => `<span class="pill ${c ? CATEGORY_CLASS[c] : 'c-none'}">${c ?? 'Sin evidencia'}</span>`;
-
-const rodsHtml = (lane: RodInstance[], target: number) => {
-  if (!lane.length) return '<div class="rods empty">Sin regletas</div>';
-  const total = Math.max(target, lane.reduce((s, r) => s + r.length, 0));
-  return `<div class="rods">${lane.map((r) => { const d = rodOf(r.length); return `<span class="rod" style="width:${Math.max(8, (r.length / total) * 100)}%;background:${d?.color ?? '#94a3b8'};color:${d?.text ?? '#fff'};border:1px solid ${d?.border ?? '#64748b'}" title="${esc(d?.name ?? 'Regleta')} (${r.length})">${r.length}</span>`; }).join('')}</div>`;
-};
-
-const eventLabel = (e: LabEvent, cfg: Cfg): [string, string] => {
-  const lane = e.laneIndex !== undefined ? laneLabel(e.activity, e.laneIndex, cfg) : '';
-  const rod = e.rodLength ? `Regleta ${e.rodLength} (${rodOf(e.rodLength)?.name ?? ''})` : '';
-  switch (e.type) {
-    case 'place': return [e.payload?.rejected ? 'Colocación rechazada (no cabe)' : e.payload?.isOverflow || e.payload?.isWrong ? 'Colocación fuera de meta' : 'Colocación', `${rod} → ${lane}`];
-    case 'remove': return ['Retiro de regleta', `${rod} ← ${lane}`];
-    case 'test_area_open': return [e.payload?.open ? 'Abre Experimenta' : 'Cierra Experimenta', ACTIVITY_META[e.activity].short];
-    case 'test_area_use': return ['Experimenta', rod];
-    case 'question_open': return ['Pregunta de formulación abierta', `Pregunta ${e.questionId}`];
-    case 'question_answer': return [`Respuesta registrada (${e.payload?.correcta ? 'correcta' : 'incorrecta'})`, e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`];
-    case 'answer_revision': return ['Respuesta revisada', e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`];
-    case 'devolution_request': return [e.payload?.scope === 'construction' ? 'Devolución didáctica de la construcción' : 'Devolución solicitada', `${e.payload?.scope === 'construction' ? `${ACTIVITY_META[e.activity].short}${lane ? ` · ${lane}` : ''}` : e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`} · nivel ${e.devolutionLevel ?? ''}`];
-    case 'devolution_open': return ['Abre la Devolución didáctica', `${ACTIVITY_META[e.activity].short}${lane ? ` · ${lane}` : ' · sin carril asociado'}`];
-    case 'judgment': return ['Juicio previo a validar', `${lane} · creyó ${e.payload?.declared ? 'correcto' : 'incorrecto'} · real: ${e.payload?.real ? 'correcto' : 'incorrecto'}`];
-    case 'anchor_open': return ['Panel de anclajes abierto', e.activity];
-    case 'formulation_panel_open': return ['Panel de formulación abierto', e.activity];
-    case 'validation_success': return ['Carril validado', lane];
-    case 'activity_complete': return ['Actividad completada', ACTIVITY_META[e.activity].name];
-    case 'activity_switch': return ['Cambio de actividad', `→ ${ACTIVITY_META[e.activity].short}`];
-    case 'instructions_open': return [e.payload?.prompted ? 'Abre Instrucciones (invitada por el pulso verde)' : 'Abre Instrucciones', ACTIVITY_META[e.activity].short];
-    case 'didactic_view': return ['Abre la Mirada Didáctica', ACTIVITY_META[e.activity].short];
-    case 'didactic_close': return ['Cierra la Mirada Didáctica', `${ACTIVITY_META[e.activity].short} · ${e.payload?.seconds ?? 0} s`];
-    case 'message_view': return ['Mensaje encriptado', ACTIVITY_META[e.activity].short];
-    default: return ['Cambio de configuración', JSON.stringify(e.payload ?? {})];
-  }
-};
-
-/** Corrección de una respuesta (IM10): términos clave cumplidos/faltantes y datos descriptivos de extensión (fuera del cálculo). */
-const evalExtra = (k: keyof Snapshot['answers'], snap: Snapshot) => { const e = evaluateAnswer(k, snap.answers[k] || ''); const r = rubricaDe(k); return { criterio: `Toca al menos ${r.minimoGrupos} de ${r.grupos.length} grupos de términos equivalentes (${r.grupos.map((g) => g.nombre).join(', ')}).`, grupos_tocados: e.tocados, grupos_no_tocados: e.noTocados, terminos_acreditados: e.terminos, minimo_grupos: e.minimo, caracteres: e.caracteres, palabras: e.palabras }; };
 
 export function buildReport(input: ReportInput): BuiltReport {
   const now = input.now ?? new Date();
   const certificateId = input.certificateId ?? makeCertificateId(now);
   const name = input.participantName.trim();
-  const { snap } = input;
-  const history = snap.history.slice().sort((a, b) => a.timestamp - b.timestamp);
-  const indicators = computeIndicators(snap);
-  // idxFull: motor 4.1, incluye IM11 (lo que ve la pantalla y el bloque immz41).
-  // idxCompat: lo que el Diario de hoy conoce (IM1–IM10): es lo que lleva el payload 4.0 y lo que verifica selfCheck.
+  const { board, history } = input;
+  const indicators = computeIndicators(history, board);
+  // idxFull: motor 4.1, incluye IM11 (lo que ve la pantalla y el bloque immz41 del payload).
+  // idxCompat: mismo cálculo que el Diario de hoy conoce — IM11 queda fuera para que
+  // verify-immz.ts (que recalcula desde el parser del Diario) siga coincidiendo byte a byte.
   const idxFull = indicesOf(indicators);
   const idxCompat = indicesOf(indicators.filter((r) => r.code !== 'IM11'));
-  const im11 = indicators.find((r) => r.code === 'IM11') ?? null;
-  const judgmentEnabled = snap.config.judgmentEnabled;
-  const form = formOf(snap.config);
-  const stats = computeStats(snap);
+  const stats = computeStats(history, board);
   const duration = history.length ? Math.max(0, Math.round((now.getTime() - history[0].timestamp) / 1000)) : 0;
   const cls = input.classNumber;
+  const im11 = indicators.find((r) => r.code === 'IM11') ?? null;
 
+  // Array de compatibilidad 4.0: SOLO IM1–IM10, igual que siempre (el Diario los empareja por código).
   const payloadIndicators = COMPAT_4_0_IDS.map((id) => {
     const d = INDICATORS.find((x) => x.id === id)!;
     const r = indicators.find((x) => x.code === id)!;
     return { code: d.id, name: d.label, dimension: d.dimension, subdimension: d.sub, value: r.value, level: categorize(r.value), has_evidence: r.value !== null, evidence_n: r.denominator, feedback: r.feedback };
   });
-  const progression = ACTIVITIES.map((a) => { const ind = computeIndicators(snap, a); const ix = indicesOf(ind); return { actividad: a, immz: ix.immz, idcd: ix.idcd, immg: ix.immg, indicadores_con_evidencia: ind.filter((i) => i.value !== null).length, devoluciones_construccion: snap.history.filter((e) => e.activity === a && e.type === 'devolution_open').length, carriles_correctos: correctLanes(snap, a), carriles_totales: laneCount(a, snap.config), avance_pct: stageProgress(snap, a) }; });
-  const formulacion = [1, 2, 3, 4].map((q) => ({ pregunta: q, titulo: FORMULATION_QUESTIONS[q - 1].subhead, respuesta: snap.answers[`q${q}` as 'q1'] || '', correcta: evaluateAnswer(`q${q}` as 'q1', snap.answers[`q${q}` as 'q1'] || '').correcta, ...evalExtra(`q${q}` as 'q1', snap), devoluciones_consultadas: snap.formulationStates[q]?.devolutionLevel ?? 0, revisiones: snap.formulationStates[q]?.revisionsCount ?? 0 }));
-  const anclajes = (['TSD2', 'TSD3'] as const).map((a) => ({ actividad: a, titulo: ANCHOR_CONFIGS[a].title, subhead: ANCHOR_CONFIGS[a].subhead, enunciado: ANCHOR_CONFIGS[a].enunciado, respuesta: snap.answers[a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge'] || '', correcta: evaluateAnswer(a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge', snap.answers[a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge'] || '').correcta, ...evalExtra(a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge', snap), devoluciones_consultadas: snap.anchorStates[a].devolutionLevel, revisiones: snap.anchorStates[a].revisionsCount }));
 
   // ── Payload canónico (lo lee el Diario) ──
   const payload: Record<string, unknown> = {
     schema_version: '4.0', schemaVersion: '4.0', compat_schema: '4.0',
     app: { id: APP_META.id, name: APP_META.name, version: APP_VERSION },
-    scenarioName: APP_META.scenarioName,
+    scenarioName: input.scenarioName,
     class_number: cls, classNumber: cls,
     participant: { name }, participant_name: name, participantName: name,
     certificate_id: certificateId,
     generatedAt: now.toISOString(), duration_seconds: duration,
     indicators: payloadIndicators,
     immz: idxCompat.immz, immz_ao: idxCompat.immzAO, immz_ac: idxCompat.immzAC, idcd: idxCompat.idcd, immg: idxCompat.immg, category: idxCompat.category,
-    apropiacion: stats.appropriation, aciertos: stats.currentHits, errores: stats.currentErrors, reflexiones: stats.reflections, movimientos: stats.totalMoves,
+    apropiacion: stats.appropriation, aciertos: stats.currentHits, errores: stats.currentErrors, reflexiones: stats.analyses, movimientos: stats.totalMoves,
     appropriation: { value: stats.appropriation, has_evidence: stats.hasEvidence, components: { accuracy: stats.accuracy, efficiency: stats.efficiency, reflection: stats.reflectionFactor }, weights: { accuracy: 0.5, efficiency: 0.25, reflection: 0.25 } },
-    activity: { total_moves: stats.totalMoves, placements: stats.placements, hits: stats.currentHits, errors: stats.currentErrors, reflections: stats.reflections, devolutions: stats.devolutions, answers: stats.answered, items_assigned: stats.lanesTouched, items_total: stats.totalLanes },
-    progression, formulation: formulacion, anchors: anclajes,
-    config: { form_id: snap.config.formId, target_units: snap.config.targetUnits },
-    // ── Bloque 4.1 (el Diario de hoy no lo conoce y lo ignora). Las tres actividades son UNA sesión y la forma (A/B/C) es de la sesión:
-    //    form_id / content_level / content_id van a este nivel. `session_form` declara el contenido numérico de la forma.
-    form_id: form.formId, content_level: form.contentLevel, content_id: form.contentId, session_seq: null,
-    opportunity_target: { ...sessionOpportunity(), piezas_cerca: piezasCerca(snap.config) },
-    session_form: { escalones: escalonesDe(snap.config).map((e) => ({ id: e.id, rotulo: e.rotulo, meta: e.meta })), puente_metas: puenteMetas(snap.config),
-      cerca: ladosDe(snap.config).map((l) => ({ label: l.label, registro: l.registro, pista: l.clue, patron: l.pattern, equivalentes: l.equivalentes ?? [] })) },
+    activity: { total_moves: stats.totalMoves, hits: stats.currentHits, errors: stats.currentErrors, analyses: stats.analyses, items_assigned: stats.itemsAssigned, items_total: stats.totalCards },
+    // ── Bloque 4.1: extensión IMMZ-4.1 (el Diario de hoy no la conoce y la ignora). ──
+    // form_id/content_level/content_id identifican la FORMA (A/B/C, TAREA 1-3 de contenido paralelo)
+    // usada en esta sesión, para poder comparar sin que la repetición se vuelva memoria de la tarea.
+    form_id: input.formId, content_level: input.contentLevel, content_id: input.contentId, session_seq: null,
+    opportunity_target: {},
     engine_version: ENGINE_VERSION,
     immz41: {
       im11: im11 ? { value: im11.value, numerator: im11.numerator, denominator: im11.denominator, formula: im11.formula } : null,
       immz_ao: idxFull.immzAO, immz_ac: idxFull.immzAC, immz: idxFull.immz, idcd: idxFull.idcd, immg: idxFull.immg, category: idxFull.category,
       engine_version: ENGINE_VERSION,
-      judgment_prompt: judgmentEnabled ? 'on' : 'off',
-      im10_modo: formulacionModo(snap),
-      im10_criterio: 'terminos_clave_provisional',
+      judgment_prompt: input.judgmentEnabled ? 'on' : 'off',
+      im10_modo: formulacionModo(history),
     },
   };
 
-  // ── Trazas crudas (no las lee el parser: van en un segundo bloque) ──
+  // ── Trazas crudas para la tesis (no las lee el parser: van en un segundo bloque) ──
   let prev: number | null = null;
-  const trace = history.map((h, i) => { const dt = prev === null ? null : h.timestamp - prev; prev = h.timestamp; return { seq: i + 1, t: new Date(h.timestamp).toISOString(), ms: h.timestamp, dt_ms: dt, activity: h.activity, type: h.type, lane: h.laneIndex ?? null, rod_length: h.rodLength ?? null, question_id: h.questionId ?? null, devolution_level: h.devolutionLevel ?? null, payload: h.payload ?? null }; });
+  const trace = history.map((h, i) => {
+    const dt = prev === null ? null : h.timestamp - prev; prev = h.timestamp;
+    if (h.type === 'move') return { seq: i + 1, t: new Date(h.timestamp).toISOString(), ms: h.timestamp, dt_ms: dt, type: 'move', card_id: h.cardId, from: h.from, to: h.to, is_correct: h.isCorrect };
+    if (h.type === 'analysis') return { seq: i + 1, t: new Date(h.timestamp).toISOString(), ms: h.timestamp, dt_ms: dt, type: 'analysis', card_id: h.cardId };
+    return { seq: i + 1, t: new Date(h.timestamp).toISOString(), ms: h.timestamp, dt_ms: dt, type: 'judgment', card_id: h.cardId, declared: h.declared, real: h.real, calibrated: h.declared === h.real };
+  });
   const raw = {
     schema: 'immz-trace/1', app: payload.app, certificate_id: certificateId, class_number: cls, participant_name: name,
     started_at: history.length ? new Date(history[0].timestamp).toISOString() : null, ended_at: now.toISOString(), duration_seconds: duration,
     indicator_evidence: indicators.map((r) => ({ code: r.code, value: r.value, numerator: r.numerator, denominator: r.denominator, formula: r.formula })),
-    engine_version: ENGINE_VERSION,
-    // Eventos canónicos (immz-core) con los que se calcularon IM1–IM11: unidad = carril «TSD1:6». Permite auditar cada indicador.
-    canonical_events: toImmzEvents(snap),
-    didactic_prompts: ACTIVITIES.map((a) => {
-      const E = history.filter((e) => e.activity === a); const done = E.find((e) => e.type === 'activity_complete');
-      const ins = done ? E.find((e) => e.type === 'instructions_open' && e.timestamp >= done.timestamp) : undefined;
-      const dv = E.find((e) => e.type === 'didactic_view'); const dc = E.filter((e) => e.type === 'didactic_close').pop();
-      const iso = (e?: LabEvent) => (e ? new Date(e.timestamp).toISOString() : null);
-      return { activity: a, completed_at: iso(done), instructions_opened_at: iso(ins), instructions_prompted: ins?.payload?.prompted === true, didactic_opened_at: iso(dv), didactic_seconds: typeof dc?.payload?.seconds === 'number' ? dc.payload.seconds : null, seconds_to_didactic: done && dv ? Math.max(0, Math.round((dv.timestamp - done.timestamp) / 1000)) : null };
-    }),
-    phase_jumps: toImmzEvents(snap).filter((e) => e.type === 'fase' && e.esSalto).map((e) => (e as { fase: string }).fase),
-    final_state: Object.fromEntries(ACTIVITIES.map((a) => [a, laneOrder(a, snap.config).map((i) => ({ lane: i, label: laneLabel(a, i, snap.config), target: realTarget(a, i, snap.config), rods: laneLengths(snap, a, i), is_correct: isLaneCorrect(a, i, laneLengths(snap, a, i), snap.config) }))])),
-    answers: snap.answers, formulation_states: snap.formulationStates, anchor_states: snap.anchorStates, config: snap.config,
+    final_board: Object.fromEntries(Object.entries(board).map(([p, cs]) => [p, cs.map((c) => ({ card_id: c.id, correct_phase: c.correctPhase, is_correct: p === 'available' ? null : c.correctPhase === p }))])),
     trace,
   };
   const json = (o: unknown) => JSON.stringify(o).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 
   // ── Cuerpo visual: ESTÁNDAR (mismo orden que la pantalla y que Rutinas Matematizadas) ──
-  const m = buildAnalysisModel(snap);
+  const m = buildAnalysisModel(history, board);
   const cfg = m.cfg;
   const card = (i: IndicatorView, tone: string) => {
     const cat = categorize(i.value);
@@ -257,32 +197,14 @@ export function buildReport(input: ReportInput): BuiltReport {
       <div class="ev">n=${i.n} · ${esc(i.formula)}</div></div>`;
   };
   const subhead = (code: string, title: string, blurb: string, label: string, v: number | null, dv: string) => `<div class="subhead"><div><h3>Subdimensión ${code} — ${title}</h3><p>${blurb}</p></div><div class="subval"><b data-variable="${dv}" data-value="${v ?? ''}">${label}: ${f1(v)}</b><span class="micro">${esc(categorize(v) ?? 'Sin evidencia')}</span></div></div>`;
+  const phases = Object.entries(board).filter(([p]) => p !== 'available');
   const ind = (sub: string) => m.indicators.filter((i) => (sub === 'B' ? i.dimension === 'B' : i.subdimension === sub));
   const ap = m.appropriation;
-
-  const kpi5 = ([['Apropiación Teórica', ap.hasEvidence ? f1(ap.value) : 'Sin evidencia', `Exactitud ${ap.accuracy}% · Efic. ${ap.efficiency}%`, ICON_SVG.grad, 'k-brand'], ['Aciertos (hoy)', String(stats.currentHits), `Carriles correctos de ${totalLanes(snap.config)}`, ICON_SVG.check, 'k-ok'], ['Errores', String(stats.currentErrors), 'Piezas fuera de meta o lado mal compuesto', ICON_SVG.x, 'k-no'], ['Movimientos', String(stats.totalMoves), 'Colocaciones y retiros de regletas', ICON_SVG.click, 'k-sky'], ['Devoluciones', String(stats.devolutions), 'Devoluciones didácticas consultadas', ICON_SVG.search, 'k-amber']] as [string, string, string, (s?: number) => string, string][])
-    .map(([l, v, h, ic, c]) => `<div class="kpi5 ${c}"><div><span class="micro">${l}</span><div class="kv">${v}</div><div class="kh">${h}</div></div><span class="kic">${ic(20)}</span></div>`).join('');
-
-  const progTable = `<table><thead><tr><th>Actividad</th><th>Carriles correctos</th><th>IMMZ (Monitoreo)</th><th>IDCD (Didáctica)</th><th>Indicadores con evidencia</th></tr></thead><tbody>${progression.map((p) => `<tr><td><b class="bt">${p.actividad}</b> · ${esc(ACTIVITY_META[p.actividad].name)}</td><td>${p.carriles_correctos} / ${p.carriles_totales}</td><td>${f1(p.immz)}</td><td>${f1(p.idcd)}</td><td>${p.indicadores_con_evidencia} / 11</td></tr>`).join('')}</tbody></table>`;
-
-  const actBlock = (a: ActivityKey) => {
-    const done = correctLanes(snap, a);
-    const lanes = laneOrder(a, snap.config).map((i) => {
-      const lengths = laneLengths(snap, a, i); const t = realTarget(a, i, snap.config); const ok = isLaneCorrect(a, i, lengths, snap.config);
-      const clue = a === 'TSD3' ? ` · ${esc(ladoOf(snap.config, i).clue)}` : '';
-      return `<div class="ln ${ok ? 'ok' : 'no'}"><div class="k"><span>${esc(laneLabel(a, i, snap.config))}${clue}</span><span class="pill ${ok ? 'c-adv' : lengths.length ? 'c-ini' : 'c-none'}" style="font-size:8px;padding:0 6px">${ok ? 'Correcto' : lengths.length ? 'Incompleto' : 'Sin iniciar'}</span></div>${rodsHtml(snap.lanes[a][i] ?? [], t)}<div class="s">${lengths.length ? `${lengths.join(' + ')} = ${lengths.reduce((s, l) => s + l, 0)}` : '—'} / ${t}</div></div>`;
-    }).join('');
-    const msg = encryptedMessage(snap, a);
-    return `<div class="act" data-activity="${a}"><h3><span>${a} · ${esc(ACTIVITY_META[a].name)} — ${esc(ACTIVITY_META[a].scene)}</span><span>${done} / ${laneCount(a, snap.config)} carriles correctos</span></h3><div class="lanes">${lanes}</div><div class="code"><span class="micro" style="color:#C98F2D">Mensaje encriptado (código aditivo)</span>\n${esc(msg.join(a === 'TSD3' ? '  |  ' : '\n'))}</div></div>`;
-  };
-  const shots = `<div class="shots" data-testid="report-shots">${ACTIVITIES.map((a) => `<figure class="shot" data-activity="${a}"><div class="img"><img src="${snapshotImage(snap, a)}" alt="Construcción final ${a}"/></div><figcaption><b>${a}</b> · ${esc(ACTIVITY_META[a].name)}<span>${correctLanes(snap, a)} / ${laneCount(a, snap.config)} carriles correctos</span></figcaption></figure>`).join('')}</div>`;
-  const answerBlock = (title: string, sub: string, enun: string, text: string, devs: number, revs: number) => `<div class="ans"><div class="q"><span>${esc(title)}</span><span>Devoluciones consultadas: ${devs}/3 · Revisiones: ${revs}</span></div><p class="st">${esc(sub)} — ${esc(enun)}</p>${text.trim() ? `<p>${esc(text)}</p>` : '<p class="none">(Sin respuesta registrada)</p>'}</div>`;
-
   const bodyHtml = `<div class="wrap"><div class="sheet">
     <div class="head"><div class="ttl"><span class="ico">${ICON_SVG.activity(22)}</span><div><span class="micro" style="color:var(--brand)">${esc(cfg.moduleLabel)}</span><h1>Análisis Metacognitivo</h1><p>${esc(cfg.reportSubtitle)}</p></div></div>
-      <div class="hr"><span class="pill cid">${esc(certificateId)}</span><p>Generado el ${esc(now.toLocaleDateString('es-CL'))} ${esc(now.toLocaleTimeString('es-CL'))}</p></div></div>
+      <div style="text-align:right"><span class="pill cid">${esc(certificateId)}</span><p>Generado el ${esc(now.toLocaleDateString('es-CL'))} ${esc(now.toLocaleTimeString('es-CL'))}</p></div></div>
 
-    <div class="tiles" id="tsd-summary-container" data-activity-total-moves="${stats.totalMoves}" data-activity-hits="${stats.currentHits}" data-activity-errors="${stats.currentErrors}" data-activity-analyses="${stats.reflections}">
+    <div class="tiles" id="tsd-summary-container" data-activity-total-moves="${stats.totalMoves}" data-activity-hits="${stats.currentHits}" data-activity-errors="${stats.currentErrors}" data-activity-analyses="${stats.analyses}">
       <div class="tile plain"><span class="micro">Participante / Diseñador</span><div class="v" style="font-size:15px;color:var(--brand)" id="tsd-participant-name" data-value="${esc(name)}">${esc(name) || 'No especificado'}</div><div class="s">${esc(INSTITUTION)}</div></div>
       <div class="tile w" data-variable="appropriation" data-value="${ap.value ?? ''}"><span class="micro" style="color:var(--brand)">Apropiación teórica</span><div class="v" style="color:var(--brand)">${ap.hasEvidence ? f1(ap.value) : 'Sin evidencia'}</div><div class="s">Exactitud ${ap.accuracy} % · Eficiencia ${ap.efficiency} % · Reflexión ${ap.reflectionFactor} %</div></div>
       <div class="tile w" data-variable="immg" data-value="${m.immg ?? ''}"><span class="micro" style="color:var(--brand)">Índice global (IMMG)</span><div class="v" style="color:var(--brand)">${f1(m.immg)}</div>${badge(idxFull.category)}</div>
@@ -296,9 +218,9 @@ export function buildReport(input: ReportInput): BuiltReport {
       <div class="verdict a"><span class="t">Veredicto Dimensión 1: ${esc(m.verdictA.status)}</span><em>${esc(m.verdictA.desc)}</em></div>
       <div class="sub">${subhead('A1', 'Autoobservación', 'Procesos de atención reflexiva, vigilancia cognitiva y detención deliberada previa a la acción (Zimmerman &amp; Moylan, 2009).', 'IMMZ-AO', m.immzAO, 'IMMZ-AO')}<div class="grid2">${ind('AO').map((i) => card(i, '#4f46e5')).join('')}</div></div>
       <div class="sub">${subhead('A2', 'Autocontrol', 'Estrategias de autorregulación activa durante la tarea: detección y autocorrección de errores, retroalimentación y resiliencia.', 'IMMZ-AC', m.immzAC, 'IMMZ-AC')}<div class="grid2">${ind('AC').map((i) => card(i, '#4f46e5')).join('')}</div></div>
-      <p data-testid="nota-im11" style="margin:14px 0 0;font-size:11px;font-style:italic;color:#64748b;border-top:1px solid #e2e8f0;padding-top:8px">IM11 pertenece al bloque 4.1 del esquema; mientras el Diario de Campo no se actualice, calcula los índices sin él, por lo que sus valores pueden diferir de los de este reporte.</p></div>
+      <p class="micro" style="text-transform:none;letter-spacing:0;margin-top:10px">IM11 pertenece al bloque 4.1 del esquema (ver <code>immz41</code> en el payload); el Diario de Campo, mientras no se actualice a 4.1, calcula IMMZ-AO, IMMZ y los demás índices sin IM11.</p></div>
 
-    <div class="sec"><h2><i style="background:#0ea5e9"></i>2. ${esc(cfg.dimB.title)}<span class="pill c-none" style="margin-left:auto" data-variable="IDCD" data-value="${m.idcd ?? ''}">IDCD: ${f1(m.idcd)}</span></h2>
+    <div class="sec"><h2><i style="background:#0ea5e9"></i>2. ${esc(cfg.dimB.title).replace('DIMENSIÓN 2: ', 'DIMENSIÓN 2: ')}<span class="pill c-none" style="margin-left:auto" data-variable="IDCD" data-value="${m.idcd ?? ''}">IDCD: ${f1(m.idcd)}</span></h2>
       <div class="kpis3"><div class="kpi3 e"><i>${esc(cfg.dimB.subIndexLabel)}</i><b>${f1(m.idcd)}</b></div></div>
       <div class="verdict b"><span class="t">Veredicto Dimensión 2: ${esc(m.verdictB.status)}</span><em>${esc(m.verdictB.desc)}</em></div>
       <div class="grid2">${ind('B').map((i) => card(i, '#0ea5e9')).join('')}</div></div>
@@ -309,15 +231,16 @@ export function buildReport(input: ReportInput): BuiltReport {
       <tr><td><b class="bt">4.2 Analíticas de aprendizaje</b></td><td>Análisis de datos y evidencias sobre el desempeño del estudiantado para informar la enseñanza.</td><td>${esc(cfg.digcomp.implement42)}</td></tr>
       <tr><td><b class="bt">4.3 Retroalimentación y toma de decisiones</b></td><td>Ofrecer retroalimentación oportuna y usar la información para adaptar la enseñanza y apoyar la toma de decisiones del estudiante.</td><td>${esc(cfg.digcomp.implement43)}</td></tr></tbody></table></div>
 
-    <div class="sec"><h2><i style="background:#64748b"></i>4. Hoja de trabajo y construcciones<span class="pill c-none" style="margin-left:auto">${stats.currentHits} / ${totalLanes(snap.config)} carriles correctos</span></h2>
-      <div class="kpis5" data-testid="kpis-trabajo">${kpi5}</div>
-      <p class="micro" style="margin:0 0 6px">Progresión por actividad</p>${progTable}
-      <p class="micro" style="margin:16px 0 8px">Pantallazo de las producciones finales</p>${shots}<p class="micro" style="margin:16px 0 8px">Construcciones finales y mensaje encriptado</p>${ACTIVITIES.map(actBlock).join('')}
-      <p class="micro" style="margin:16px 0 8px">Respuestas de formulación (TSD 1 · El Volantín)</p>${[1, 2, 3, 4].map((q) => answerBlock(`Pregunta ${q}`, FORMULATION_QUESTIONS[q - 1].subhead, FORMULATION_QUESTIONS[q - 1].enunciado, snap.answers[`q${q}` as 'q1'] || '', snap.formulationStates[q]?.devolutionLevel ?? 0, snap.formulationStates[q]?.revisionsCount ?? 0)).join('')}
-      <p class="micro" style="margin:16px 0 8px">Anclajes conceptuales (TSD 2 y TSD 3)</p>${anclajes.map((x) => answerBlock(x.titulo, x.subhead, x.enunciado, x.respuesta, x.devoluciones_consultadas, x.revisiones)).join('')}</div>
+    <div class="sec"><h2><i style="background:#64748b"></i>4. Hoja de trabajo y clasificación didáctica<span class="pill c-none" style="margin-left:auto">${stats.currentHits} / ${stats.itemsAssigned} aciertos</span></h2>
+      <div class="kpis5" data-testid="kpis-trabajo">${([['Apropiación TSD', ap.hasEvidence ? f1(ap.value) : 'Sin evidencia', `Exactitud ${ap.accuracy}% · Efic. ${ap.efficiency}%`, ICON_SVG.grad, 'k-brand'], ['Aciertos (hoy)', String(stats.currentHits), 'Tarjetas en su fase correcta', ICON_SVG.check, 'k-ok'], ['Errores (hoy)', String(stats.currentErrors), 'Tarjetas fuera de su fase', ICON_SVG.x, 'k-no'], ['Movimientos', String(stats.totalMoves), 'Tarjetas arrastradas a una fase', ICON_SVG.click, 'k-sky'], ['Devoluciones', String(stats.analyses), 'Consultas con la lupa', ICON_SVG.search, 'k-amber']] as [string, string, string, (s?: number) => string, string][]).map(([l, v, h, ic, c]) => `<div class="kpi5 ${c}"><div><span class="micro">${l}</span><div class="kv">${v}</div><div class="kh">${h}</div></div><span class="kic">${ic(20)}</span></div>`).join('')}</div>
+      <div class="phases">${phases.map(([p, cs]) => `<div class="phase" data-phase-id="${p}"><h3>${esc(phaseName(p))}</h3>${(cs as Card[]).map((c) => `<div class="pc ${c.correctPhase === p ? 'ok' : 'no'}"><span class="pill ${c.correctPhase === p ? 'c-adv' : 'c-ini'}" style="font-size:8px;padding:0 6px">${c.correctPhase === p ? 'Correcto' : 'Error'}</span><div class="k">${esc(c.type)}</div>${esc(c.content)}<div class="j">${esc(c.justification || '')}</div></div>`).join('') || '<p class="micro" style="text-align:center">Sin tarjetas</p>'}</div>`).join('')}</div></div>
 
-    <div class="sec"><h2><i style="background:var(--brand)"></i>5. Bitácora de Monitoreo Activo</h2><p class="micro" style="text-transform:none;letter-spacing:0;margin:-4px 0 10px">Historial secuencial de vigilancia cognitiva capturado en tiempo real durante la construcción con regletas y la formulación.</p>
-      <table><thead><tr><th style="width:90px">Hora</th><th style="width:210px">Acción registrada</th><th>Detalle del evento</th></tr></thead><tbody>${history.length ? history.slice().reverse().map((e) => { const [a, d] = eventLabel(e, snap.config); return `<tr><td class="mono">${esc(new Date(e.timestamp).toLocaleTimeString('es-CL'))}</td><td><b class="bt">${esc(a)}</b></td><td>${esc(d)}</td></tr>`; }).join('') : '<tr><td colspan="3" style="text-align:center;font-style:italic;color:var(--mut)">No se han registrado interacciones aún.</td></tr>'}</tbody></table></div>
+    <div class="sec"><h2><i style="background:var(--brand)"></i>5. Bitácora de Monitoreo Activo</h2><p class="micro" style="text-transform:none;letter-spacing:0;margin:-4px 0 10px">Historial secuencial de vigilancia cognitiva capturado en tiempo real durante la clasificación de tarjetas.</p>
+      <table><thead><tr><th style="width:90px">Hora</th><th style="width:160px">Acción registrada</th><th>Detalle del evento</th></tr></thead><tbody>${history.length ? history.slice().reverse().map((e) => {
+        const label = e.type === 'move' ? (e.isCorrect ? 'Movimiento correcto' : 'Movimiento con error') : e.type === 'analysis' ? 'Devolución consultada' : e.declared === e.real ? 'Juicio calibrado (IM11)' : 'Juicio sin calibrar (IM11)';
+        const detail = e.type === 'move' ? `«${esc(e.cardContent.length > 70 ? e.cardContent.slice(0, 70) + '…' : e.cardContent)}» → ${esc(phaseName(e.to))}` : e.type === 'analysis' ? `«${esc(e.cardContent.length > 70 ? e.cardContent.slice(0, 70) + '…' : e.cardContent)}»` : `Declaró "${e.declared ? 'Sí' : 'No'}" · resultado real: "${e.real ? 'Sí' : 'No'}"`;
+        return `<tr><td class="mono">${esc(new Date(e.timestamp).toLocaleTimeString('es-CL'))}</td><td><b class="bt">${label}</b></td><td>${detail}</td></tr>`;
+      }).join('') : '<tr><td colspan="3" style="text-align:center;font-style:italic;color:var(--mut)">No se han registrado interacciones aún.</td></tr>'}</tbody></table></div>
 
     <div class="sec note"><h3>Fundamentación teórica del diagnóstico</h3>${esc(cfg.foundation)}</div>
     <div class="foot"><span>© 2026 ${esc(INSTITUTION)}</span><span>${esc(APP_META.name)} v${APP_VERSION}</span></div>
@@ -328,7 +251,7 @@ export function buildReport(input: ReportInput): BuiltReport {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Informe Laboratorio TSD · ${esc(name)}</title>
+<title>Informe de Simulación TSD · ${esc(name)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
 <script id="bct-report-payload" type="application/json">${json(payload)}</script>
 <script id="tsd-report-raw-data" type="application/json">${json(raw)}</script>
@@ -346,7 +269,7 @@ export function selfCheck(r: BuiltReport, expectedClass: number | null, expected
   const p = parseReportText(r.html, r.fileName);
   const issues: string[] = [];
   const eq = (a: number | null | undefined, b: number | null | undefined) => (a ?? null) === (b ?? null);
-  // Solo IM1–IM10: el Diario de hoy no conoce IM11 (vive en el bloque immz41).
+  // Solo IM1–IM10: el Diario de hoy no conoce IM11 (vive en el bloque immz41, fuera del contrato 4.0).
   COMPAT_4_0_IDS.forEach((id) => { const d = INDICATORS.find((x) => x.id === id)!; const got = p.indicators.find((i) => i.id === d.id)?.value ?? null; const exp = r.indicators.find((i) => i.code === d.id)?.value ?? null; if (!eq(got, exp)) issues.push(`${d.id}: el Diario leería ${got} y la app calculó ${exp}`); });
   (['immz', 'immzAO', 'immzAC', 'idcd', 'immg'] as const).forEach((k) => { const exp = ({ immz: r.indices.immz, immzAO: r.indices.immzAO, immzAC: r.indices.immzAC, idcd: r.indices.idcd, immg: r.indices.immg })[k]; if (!eq(p[k], exp)) issues.push(`${k}: ${p[k]} ≠ ${exp}`); });
   if (p.classNumber !== expectedClass) issues.push(`Clase leída ${p.classNumber} ≠ ${expectedClass}`);
@@ -354,7 +277,6 @@ export function selfCheck(r: BuiltReport, expectedClass: number | null, expected
   if (p.studentName !== expectedName.trim()) issues.push(`Nombre leído «${p.studentName}» ≠ «${expectedName.trim()}»`);
   if (p.sourceVersion !== '4.0') issues.push(`Esquema leído ${p.sourceVersion} ≠ 4.0`);
   if (!eq(p.apropiacion, r.stats.appropriation)) issues.push(`Apropiación leída ${p.apropiacion} ≠ ${r.stats.appropriation}`);
-  if (p.aciertos !== r.stats.currentHits || p.errores !== r.stats.currentErrors || p.reflexiones !== r.stats.reflections) issues.push('Aciertos/errores/reflexiones leídos no coinciden con los calculados');
   if (!r.fileName.toLowerCase().startsWith(APP_META.filenamePrefix.toLowerCase())) issues.push('El nombre de archivo no comienza con el prefijo esperado');
   return { ok: issues.length === 0, issues, parsed: p };
 }

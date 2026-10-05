@@ -1,57 +1,39 @@
-import { ACTIVITIES, DEFAULT_FORM, FORMAS, LANE_COUNT, TARGET_DEFAULT, TARGET_MAX, TARGET_MIN } from '../data/lab';
-import type { ActivityKey, AnchorState, FormulationAnswers, FormulationQuestionState, LabEvent, LanesByActivity, RodInstance, TestAreaPiece } from '../labTypes';
+import type { Board, HistoryEvent } from './metrics';
+import { DEFAULT_FORMA_ID, TSDPhase, type Card, type Forma } from '../data/cards';
 
-const KEY = 'ltsd_session_v2'   // v2: sesión de 18 carriles (10/4/4); las sesiones v1 tenían otra estructura y se descartan;
-const K_NAME = 'ltsd_participant_name';
-const K_CLS = 'ltsd_class_number';
+const K = { items: 'tsd_items', analyzed: 'tsd_analyzed_ids', history: 'tsd_action_history', name: 'tsd_participant_name', cls: 'tsd_class_number', judgment: 'tsd_judgment_enabled', forma: 'tsd_forma_id' };
+const read = <T,>(k: string, d: T): T => { try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : d; } catch { return d; } };
+const write = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin almacenamiento */ } };
 
-export interface Session {
-  activeActivity: ActivityKey;
-  showIntro: boolean;
-  /** Forma de la sesión (A/B/C) y meta de las vías del puente (5 a 7) en la forma A. */
-  formId: 'A' | 'B' | 'C';
-  targetUnits: number;
-  /** Pregunta previa «¿Crees que este carril está completo y correcto?» (IM11). */
-  judgmentEnabled: boolean;
-  inventoryCount: number;
-  lanes: LanesByActivity;
-  testArea: Record<ActivityKey, TestAreaPiece[]>;
-  answers: FormulationAnswers;
-  formulationStates: Record<number, FormulationQuestionState>;
-  anchorStates: Record<'TSD2' | 'TSD3', AnchorState>;
-  history: LabEvent[];
-}
-
-export const emptyLanes = (): LanesByActivity => ({ TSD1: Array.from({ length: LANE_COUNT.TSD1 }, () => [] as RodInstance[]), TSD2: Array.from({ length: LANE_COUNT.TSD2 }, () => [] as RodInstance[]), TSD3: Array.from({ length: LANE_COUNT.TSD3 }, () => [] as RodInstance[]) });
-export const emptyAnswers = (): FormulationAnswers => ({ q1: '', q2: '', q3: '', q4: '', tsd2Bridge: '', tsd3Bridge: '' });
-export const emptyFormulation = (): Record<number, FormulationQuestionState> => ({ 1: { id: 1, answer: '', devolutionLevel: 0, revisionsCount: 0 }, 2: { id: 2, answer: '', devolutionLevel: 0, revisionsCount: 0 }, 3: { id: 3, answer: '', devolutionLevel: 0, revisionsCount: 0 }, 4: { id: 4, answer: '', devolutionLevel: 0, revisionsCount: 0 } });
-export const emptyAnchors = (): Record<'TSD2' | 'TSD3', AnchorState> => ({ TSD2: { devolutionLevel: 0, revisionsCount: 0, lastUnlockedAt: null }, TSD3: { devolutionLevel: 0, revisionsCount: 0, lastUnlockedAt: null } });
-export const freshSession = (): Session => ({
-  activeActivity: 'TSD1', showIntro: true, formId: DEFAULT_FORM, targetUnits: TARGET_DEFAULT, judgmentEnabled: true, inventoryCount: 4, lanes: emptyLanes(), testArea: { TSD1: [], TSD2: [], TSD3: [] },
-  answers: emptyAnswers(), formulationStates: emptyFormulation(), anchorStates: emptyAnchors(), history: [],
-});
+export function shuffle<T>(a: T[]): T[] { const s = [...a]; for (let i = s.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [s[i], s[j]] = [s[j], s[i]]; } return s; }
+export const freshBoard = (cards: Card[]): Board => ({ available: shuffle(cards), [TSDPhase.ACTION]: [], [TSDPhase.FORMULATION]: [], [TSDPhase.VALIDATION]: [], [TSDPhase.INSTITUTIONALIZATION]: [] });
 
 export const storage = {
-  session(): Session {
-    const d = freshSession();
-    try {
-      const raw = localStorage.getItem(KEY); if (!raw) return d;
-      const s = JSON.parse(raw) as Partial<Session>;
-      const lanes = emptyLanes();
-      ACTIVITIES.forEach((a) => { for (let i = 0; i < LANE_COUNT[a]; i++) lanes[a][i] = s.lanes?.[a]?.[i] ?? []; });
-      return {
-        ...d, ...s, lanes, testArea: { ...d.testArea, ...(s.testArea ?? {}) }, answers: { ...d.answers, ...(s.answers ?? {}) },
-        formulationStates: { ...d.formulationStates, ...(s.formulationStates ?? {}) }, anchorStates: { ...d.anchorStates, ...(s.anchorStates ?? {}) },
-        formId: FORMAS.some((f) => f.id === s.formId) ? s.formId! : DEFAULT_FORM, targetUnits: Math.min(TARGET_MAX, Math.max(TARGET_MIN, Number(s.targetUnits) || TARGET_DEFAULT)), judgmentEnabled: s.judgmentEnabled !== false,
-        history: Array.isArray(s.history) ? s.history : [],
-      };
-    } catch { return d; }
+  /** Lee el tablero guardado si corresponde a las MISMAS tarjetas de `cards` (misma forma);
+   *  si no (p. ej. la sesión guardada es de otra forma), arranca un tablero nuevo con `cards`. */
+  board: (cards: Card[]): Board => {
+    const b = read<Board | null>(K.items, null);
+    if (!b || !Array.isArray(b.available)) return freshBoard(cards);
+    const savedIds = new Set(Object.values(b).flat().map((c) => (c as Card).id));
+    const sameForma = cards.length === savedIds.size && cards.every((c) => savedIds.has(c.id));
+    if (!sameForma) return freshBoard(cards);
+    return { ...b, available: shuffle(b.available) };
   },
-  saveSession(s: Session) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* sin almacenamiento */ } },
-  name: (): string => { try { return localStorage.getItem(K_NAME) ?? ''; } catch { return ''; } },
-  saveName: (n: string) => { try { localStorage.setItem(K_NAME, n); } catch { /* */ } },
+  saveBoard: (b: Board) => write(K.items, b),
+  analyzed: (): string[] => read<string[]>(K.analyzed, []),
+  saveAnalyzed: (a: string[]) => write(K.analyzed, a),
+  history: (): HistoryEvent[] => read<HistoryEvent[]>(K.history, []),
+  saveHistory: (h: HistoryEvent[]) => write(K.history, h),
+  name: (): string => { try { return localStorage.getItem(K.name) ?? ''; } catch { return ''; } },
+  saveName: (n: string) => { try { localStorage.setItem(K.name, n); } catch { /* */ } },
   /** Clase que declara el informe: número 1–12, o null = no declarar. */
-  classNumber: (def: number): number | null => { try { const v = localStorage.getItem(K_CLS); if (v === null) return def; return v === 'none' ? null : Number(v); } catch { return def; } },
-  saveClassNumber: (c: number | null) => { try { localStorage.setItem(K_CLS, c === null ? 'none' : String(c)); } catch { /* */ } },
-  clearSession: () => { try { localStorage.removeItem(KEY); } catch { /* */ } },
+  classNumber: (def: number): number | null => { try { const v = localStorage.getItem(K.cls); if (v === null) return def; return v === 'none' ? null : Number(v); } catch { return def; } },
+  saveClassNumber: (c: number | null) => { try { localStorage.setItem(K.cls, c === null ? 'none' : String(c)); } catch { /* */ } },
+  /** Modal de calibración del juicio (IM11). Activado por defecto. */
+  judgmentEnabled: (): boolean => { try { const v = localStorage.getItem(K.judgment); return v === null ? true : v === '1'; } catch { return true; } },
+  saveJudgmentEnabled: (v: boolean) => { try { localStorage.setItem(K.judgment, v ? '1' : '0'); } catch { /* */ } },
+  /** Forma del contenido (A/B/C) elegida para esta sesión. 'A' por defecto si no se eligió. */
+  formaId: (): Forma['id'] => { try { const v = localStorage.getItem(K.forma); return v === 'B' || v === 'C' ? v : DEFAULT_FORMA_ID; } catch { return DEFAULT_FORMA_ID; } },
+  saveFormaId: (id: Forma['id']) => { try { localStorage.setItem(K.forma, id); } catch { /* */ } },
+  clearSession: () => { try { [K.items, K.analyzed, K.history].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } },
 };

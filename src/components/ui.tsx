@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect } from 'react';
-import { Lock, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { ImmzCategory } from '../types';
 
 export function Modal({ open, onClose, title, children, size = 'lg', tone = 'ink' }: { open: boolean; onClose: () => void; title: string; children: ReactNode; size?: 'lg' | '3xl' | '5xl'; tone?: 'ink' | 'amber' }) {
@@ -42,17 +42,3 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   );
 }
 export const fmtPct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${Math.round(v)}%`);
-
-/** Globo informativo con el estilo de la app (se muestra al pasar el mouse o con el foco). Solo se activa si `lines` trae contenido. */
-export function Tip({ title, lines, children, className = '', side = 'bottom' }: { title: string; lines: string[]; children: ReactNode; className?: string; side?: 'bottom' | 'top' }) {
-  if (!lines.length) return <>{children}</>;
-  return (
-    <span className={`group relative ${className}`}>
-      {children}
-      <span role="tooltip" data-testid="app-tip" className={`pointer-events-none invisible absolute left-1/2 z-[80] w-64 -translate-x-1/2 rounded-xl border border-accent/40 bg-white p-3 text-left opacity-0 shadow-lg transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100 ${side === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
-        <span className="micro mb-1.5 flex items-center gap-1.5 !text-amber-700"><Lock size={11} />{title}</span>
-        {lines.map((l) => <span key={l} className="mb-1 block text-[11px] normal-case leading-snug tracking-normal text-slate-700 last:mb-0">{l}</span>)}
-      </span>
-    </span>
-  );
-}

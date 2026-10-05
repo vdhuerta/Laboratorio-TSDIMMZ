@@ -1,0 +1,39 @@
+import type { AppAnalysisConfig } from './standard';
+import { APP_META } from '../config';
+
+export const TSD_ANALYSIS: AppAnalysisConfig = {
+  appName: APP_META.name,
+  moduleLabel: `Módulo de Evaluación Formativa Digital - ${APP_META.name}`,
+  title: 'Análisis Metacognitivo del Diseño Didáctico',
+  subtitle: 'Análisis cualitativo y cuantitativo del proceso cognitivo basado en el modelo de autorregulación de Zimmerman y Moylan.',
+  reportSubtitle: 'Evaluación del proceso de autorregulación y desempeño didáctico TSD',
+  appropriation: {
+    blurb: 'Índice sintético que combina la exactitud de las tarjetas ubicadas en su fase correcta (50%), la eficiencia procedimental en movimientos (25%) y la detención reflexiva mediante consultas de devolución didáctica (25%).',
+    weights: '50 / 25 / 25',
+  },
+  gaugeIntro: {
+    title: 'Evaluación Científica de Autorregulación',
+    p1: 'Estos 10 indicadores miden con precisión tu conducta al diseñar la secuencia didáctica de «El Almacén de Monedas», organizados en dos dimensiones: tu capacidad de monitoreo metacognitivo autorregulado (Zimmerman & Moylan, 2009) y tu competencia didáctica en la Teoría de las Situaciones Didácticas de Brousseau.',
+    hint: 'Haz clic en cualquier indicador para ver su fórmula y tip didáctico.',
+  },
+  dimB: { kicker: 'Evaluación de Dominio Disciplinar', title: 'DIMENSIÓN 2: Competencia Didáctica TSD (Brousseau)', subIndexLabel: 'Sub-índice IDCD' },
+  indicators: {
+    IM1: { name: 'IM1. Vigilancia Cognitiva Sostenida', authors: 'Zimmerman & Moylan (2009) — Fase de Ejecución: Autoobservación', description: 'Mide la autorregulación del tiempo entre acciones: proporción de movimientos consecutivos separados por un intervalo deliberado (entre 5 y 60 segundos). Previene el arrastre impulsivo de tarjetas.', tip: 'Tómate más de 5 segundos antes de mover cada tarjeta y pregúntate quién tiene el protagonismo en esa fase: el niño o la educadora.' },
+    IM2: { name: 'IM2. Proporción de Detención Reflexiva', authors: 'Brousseau — Devolución y análisis teórico', description: 'Proporción de consultas de análisis técnico (lupa) respecto al número total de movimientos realizados.', tip: 'Usa la lupa en tarjetas ya ubicadas, también en las correctas, y contrasta tu decisión con la devolución didáctica.' },
+    IM3: { name: 'IM3. Autocorrección y Detección de Errores', authors: 'Zimmerman & Moylan (2009) — Fase de Ejecución: Autocontrol', description: 'Capacidad de identificar y reparar un error tras recibir la devolución del milieu: por cada tarjeta con error, 50 puntos por consultar la devolución y 50 por ubicarla luego en su fase correcta.', tip: 'Si te equivocas, abre la devolución antes de reubicar la tarjeta; no la muevas al azar.' },
+    IM4: { name: 'IM4. Aprovechamiento de Retroalimentación', authors: 'Zimmerman & Moylan (2009) — Fase de Ejecución: Autocontrol', description: 'Nivel de interacción y lectura de los análisis didácticos y las devoluciones detalladas proporcionadas por el milieu, sobre las tarjetas ya asignadas.', tip: 'Consulta la devolución de cada tarjeta que ubiques; la retroalimentación también confirma los aciertos.' },
+    IM5: { name: 'IM5. Resiliencia al Fracaso y Reajuste Cognitivo', authors: 'Panadero & Alonso-Tapia (2014) — Ciclo adaptativo post-error', description: 'Capacidad de reaccionar de manera inmediata y asertiva tras cometer un error: proporción de errores seguidos por un acierto en el movimiento siguiente.', tip: 'Tras un error, detente y analiza la causa antes de mover la siguiente tarjeta.' },
+    IM6: { name: 'IM6. Alineación con la Secuencia Adidáctica', authors: 'Brousseau — Preservación de la situación adidáctica', description: 'Evaluación del orden didáctico. Penaliza la institucionalización prematura (revelar el saber antes de que el estudiante explore la acción y la formulación).', tip: 'Ubica primero las tarjetas de acción y formulación; institucionaliza al final, cuando el estudiante ya exploró y validó.' },
+    IM7: { name: 'IM7. Fluidez y Control de Carga Cognitiva', authors: 'Zimmerman & Moylan (2009) — Fase de Ejecución: Autoobservación', description: 'Estabilidad de las decisiones. Mide la ausencia de movimientos redundantes (arrastrar la misma tarjeta de un lado a otro repetidamente).', tip: 'Evita mover más de dos veces la misma tarjeta: decide con un criterio explícito.' },
+    IM8: { name: 'IM8. Intencionalidad del Ensayo y Error', authors: 'Brousseau — Interacción racional con el milieu', description: 'Eficiencia empírica. Compara los movimientos acertados sobre el total, evaluando si los intentos tienen lógica didáctica.', tip: 'Justifica cada ubicación con el rol que asumen docente y estudiante en esa fase.' },
+    IM9: { name: 'IM9. Precisión Predictiva Planificada', authors: 'Brousseau — Modelo mental pre-acción sobre el milieu', description: 'Tasa de éxito al primer intento. Refleja la solidez del análisis previo antes de someter cada tarjeta al milieu.', tip: 'Anticipa la fase correcta antes de arrastrar: el primer intento es el que cuenta.' },
+    IM10: { name: 'IM10. Apropiación de Códigos de Formulación', authors: 'Brousseau — Fase de formulación y lenguaje', description: 'Desempeño específico en la fase de Formulación, encargada de la exteriorización y codificación de estrategias.', tip: 'Distingue formular (comunicar la estrategia) de actuar (manipular) y de validar (probar).' },
+    IM11: { name: 'IM11. Calibración del Juicio Metacognitivo', authors: 'Nelson y Narens (1990), actualizado por Lee y Bosch (2025) — Monitoreo en el meta-nivel', description: 'Mide la correspondencia entre el juicio que la estudiante emite sobre su propia respuesta, antes de validarla, y el resultado real: juicios acertados ÷ juicios emitidos. A diferencia de los demás indicadores de autoobservación, no registra conducta sino la exactitud del juicio sobre esa conducta.', tip: 'Antes de validar, detente a decidir si crees que está correcto. Equivocarte en el juicio es información tan útil como equivocarte en la tarea.' },
+  },
+  digcomp: {
+    implement41: 'Las tarjetas didácticas con sus consignas, materiales, roles y preguntas guía funcionan como un instrumento de evaluación formativa que diagnostica en tiempo real la capacidad de diseñar una secuencia didáctica coherente con la TSD.',
+    implement42: 'Los 10 indicadores BCT (organizados en IMMZ e IDCD), el historial de actividad, los tiempos entre acciones y los patrones de error constituyen analíticas de aprendizaje procesables.',
+    implement43: 'La «devolución didáctica» de cada tarjeta ofrece retroalimentación inmediata, específica y orientada a la acción; el Diario de Campo permite que la estudiante tome decisiones sobre su propio aprendizaje.',
+  },
+  foundation: 'Este diagnóstico traduce la secuencia de acciones de la participante en dos dimensiones complementarias. La Dimensión A (Monitoreo Metacognitivo) se fundamenta en el modelo cíclico de autorregulación de Zimmerman y Moylan (2009), específicamente en la fase de ejecución, donde el autocontrol y la auto-observación permiten al estudiante supervisar su comprensión y ajustar estrategias en tiempo real. La Dimensión B (Competencia Didáctica TSD) se sustenta en la Teoría de Situaciones Didácticas de Brousseau, donde la adquisición autónoma del saber requiere que el milieu funcione como un oponente con quien dialogar racionalmente. Ambas dimensiones se articulan con el Área 4 del marco DigCompEdu (Evaluación y Retroalimentación), que abarca el diseño de instrumentos evaluativos digitales (4.1), las analíticas de aprendizaje (4.2) y la retroalimentación orientada a la toma de decisiones (4.3). El Diario de Campo complementa los indicadores conductuales con la voz de la estudiante sobre su propio proceso, permitiendo triangular datos de comportamiento con datos de autorreporte.',
+};
