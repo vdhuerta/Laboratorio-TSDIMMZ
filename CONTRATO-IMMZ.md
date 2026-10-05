@@ -1,7 +1,7 @@
 # Contrato de reporte IMMZ 4.0 (Diario de Campo ⇄ apps de clase)
 
 Válido para las 5 apps (Laboratorio TSD, Constructor de Trayectorias, Rutinas Matematizadas, Laboratorio TSD, PatternStudio).
-La implementación de referencia es `src/lib/immzReport.ts`; `src/lib/metrics.ts` muestra cómo se calculan IM1–IM10.
+La implementación de referencia es `src/lib/immzReport.ts`; `src/lib/metrics.ts` traduce la traza a eventos canónicos y `src/immz-core/` calcula IM1–IM11 (ver `ESTANDAR-IMMZ-CORE.md`). IM11 y la declaración de formas viajan en el bloque 4.1 (`immz41`, `forms`, `opportunity_target`), fuera del arreglo `indicators`.
 
 ## Reglas
 1. **El primer `<script type="application/json">` del HTML es el payload canónico** (`id="bct-report-payload"`). El parser del Diario toma el primero que encuentra; las trazas crudas van en un segundo bloque (`id="tsd-report-raw-data"`).

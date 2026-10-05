@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Award, BookOpen, CheckSquare, ChevronDown, Cpu, FileSpreadsheet, FileText, GraduationCap, Info, MessageSquare, RefreshCw, Sparkles, Timer, Workflow, Zap, type LucideIcon } from 'lucide-react';
+import { Award, BookOpen, CheckSquare, ChevronDown, Cpu, FileSpreadsheet, FileText, GraduationCap, Info, MessageSquare, RefreshCw, Scale, Sparkles, Timer, Workflow, Zap, type LucideIcon } from 'lucide-react';
 import { categorize } from '../lib/immz/scoring';
 import { CatBadge } from '../components/ui';
 import type { AnalysisModel, IndicatorView } from './standard';
@@ -9,7 +9,7 @@ import type { AnalysisModel, IndicatorView } from './standard';
  * Colores: chrome = verde institucional del Diario (brand) + ámbar (accent); datos = índigo (Dim. A) y celeste (Dim. B),
  * igual que ImmzPreview del Diario. Tipografía: Inter; solo los títulos en negrita (font-title / h1–h6).
  */
-const ICONS: Record<string, LucideIcon> = { IM1: Timer, IM2: FileText, IM3: RefreshCw, IM4: MessageSquare, IM5: Award, IM6: Workflow, IM7: Cpu, IM8: Zap, IM9: CheckSquare, IM10: BookOpen };
+const ICONS: Record<string, LucideIcon> = { IM1: Timer, IM2: FileText, IM3: RefreshCw, IM4: MessageSquare, IM5: Award, IM6: Workflow, IM7: Cpu, IM8: Zap, IM9: CheckSquare, IM10: BookOpen, IM11: Scale };
 const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v)}%`);
 const nivel = (v: number | null) => categorize(v) ?? 'Sin evidencia';
 const TONE = {
@@ -110,6 +110,7 @@ export function DimASection({ m }: { m: AnalysisModel }) {
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">{m.indicators.filter((i) => i.subdimension === 'AO').map((i) => <IndicatorCard key={i.code} ind={i} />)}</div></div>
       <div className="space-y-4 border-t border-slate-100 pt-5"><SubHeader code="A2" title="Autocontrol" blurb="Estrategias de autorregulación activa durante la tarea: detección y autocorrección de errores, retroalimentación y resiliencia." label="IMMZ-AC" value={m.immzAC} />
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">{m.indicators.filter((i) => i.subdimension === 'AC').map((i) => <IndicatorCard key={i.code} ind={i} />)}</div></div>
+      <p data-testid="nota-im11" className="border-t border-slate-100 pt-3 text-[11px] italic text-slate-500">IM11 pertenece al bloque 4.1 del esquema; mientras el Diario de Campo no se actualice, calcula los índices sin él, por lo que sus valores pueden diferir de los de esta pantalla.</p>
     </div>
   );
 }

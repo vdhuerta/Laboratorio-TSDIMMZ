@@ -25,7 +25,7 @@ export function buildAnalysisModel(snap: Snapshot, cfg: AppAnalysisConfig = LAB_
   const indicators = INDICATORS.map((d) => {
     const r = raw.find((x) => x.code === d.id)!; const m = cfg.indicators[d.id];
     return { ...m, code: d.id, dimension: d.dimension, subdimension: d.sub === 'IDCD' ? null : (d.sub as 'AO' | 'AC'), value: r.value, hasEvidence: r.value !== null, formula: r.formula, feedback: r.value === null ? 'Sin evidencia registrada en esta sesión.' : r.feedback, n: r.denominator,
-      breakdown: d.id === 'IM4' && r.denominator > 0 ? `${r.numerator} de ${r.denominator} devoluciones seguidas de un reajuste` : d.id === 'IM10' && r.denominator > 0 ? `${r.numerator} de ${r.denominator} preguntas con respuesta sustantiva` : undefined };
+      breakdown: d.id === 'IM4' && r.denominator > 0 ? `${r.numerator} de ${r.denominator} devoluciones seguidas de una nueva acción en el carril` : d.id === 'IM10' && r.denominator > 0 ? `${r.numerator} de ${r.denominator} preguntas con respuesta correcta` : undefined };
   });
   return { cfg, indicators, raw, appropriation: { value: st.appropriation, accuracy: st.accuracy, efficiency: st.efficiency, reflectionFactor: st.reflectionFactor, hasEvidence: st.hasEvidence },
     immz: idx.immz, immzAO: idx.immzAO, immzAC: idx.immzAC, idcd: idx.idcd, immg: idx.immg, verdictA: verdictA(idx.immz), verdictB: verdictB(idx.idcd), verdictGlobal: globalVerdict(idx.immg) };

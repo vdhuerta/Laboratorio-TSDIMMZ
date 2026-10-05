@@ -20,14 +20,14 @@ export const DEV_TEXT: Record<ActivityKey, Record<DevCase, [string, string, stri
       'Piensa en la regleta más pequeña como una unidad de medida: ¿cómo la usarías para comparar el escalón de más abajo con el que está justo encima?',
     ],
     error: [
-      'Observa el {lane}: compara su largo con el del escalón que está justo debajo (o justo encima). ¿Qué diferencia hay entre ambos?',
-      'Si, al subir de un escalón al siguiente, el largo cambia siempre en la misma cantidad, ¿tu {lane} sigue esa regla? Compruébalo con una regleta en Experimenta.',
-      'Retira piezas del {lane} y vuelve a armarlo, midiendo cuánto cambia su largo respecto del escalón que está justo debajo. Esa regla de cambio es la misma en toda la escalera.',
+      'Observa el {lane}: compara su regleta con la del escalón que está justo debajo (o justo encima). ¿Cuál es más larga? ¿Cuánto más?',
+      'Cada escalón se completa con una sola regleta. Si, al subir de un escalón al siguiente, el largo cambia siempre en la misma cantidad, ¿la regleta de tu {lane} sigue esa regla? Compruébalo en Experimenta.',
+      'Retira la regleta del {lane} y prueba con otra, midiendo cuánto cambia su largo respecto del escalón que está justo debajo. Esa regla de cambio es la misma en toda la escalera.',
     ],
     incompleto: [
-      'El {lane} aún no está listo. ¿Cómo podrías averiguar cuánto le falta o le sobra comparándolo con el escalón vecino?',
+      'El {lane} aún no está listo. ¿Cómo podrías averiguar si su regleta es más larga o más corta de lo que corresponde, comparándola con el escalón vecino?',
       'Mira un escalón ya resuelto y pregúntate: ¿cuánto más largo o más corto debería ser este, según el lugar que ocupa en la escalera?',
-      'En Experimenta, junta dos regletas y compáralas con una tercera. ¿Qué combinaciones igualan el largo que necesitas?',
+      'En Experimenta, pon tu regleta junto a la del escalón vecino y compáralas con una tercera. ¿Qué te dice la diferencia entre ambas?',
     ],
     completa: [
       'Tus escalones forman una regularidad. ¿Podrías describirla sin contar de uno en uno?',
@@ -61,12 +61,12 @@ export const DEV_TEXT: Record<ActivityKey, Record<DevCase, [string, string, stri
     inicio: [
       'Cada lado tiene una pista escrita. Léela con calma: ¿qué operación te pide realizar?',
       'Traduce la pista a una operación con números y calcúlala antes de colocar piezas.',
-      'Cuando tengas el resultado de la pista, busca regletas que juntas igualen ese resultado.',
+      'Cuando tengas la expresión numérica de la pista, represéntala con regletas: cada número de la expresión es una regleta.',
     ],
     error: [
       'Relee la pista del {lane}: ¿lo que construiste dice lo mismo que la pista?',
       'Escribe la operación de la pista paso a paso (qué se multiplica o qué se suma primero) y compara con lo que armaste.',
-      'Calcula el valor de la pista del {lane} y ajusta las piezas hasta que su suma coincida con ese valor.',
+      'Escribe con números lo que dice la pista del {lane} y arma con regletas esa misma expresión, pieza por pieza: que el total coincida no es suficiente.',
     ],
     incompleto: [
       'El {lane} todavía no cumple su pista. ¿Qué le falta para igualarla?',

@@ -17,19 +17,20 @@ const Exhausted = ({ onOpen, text }: { onOpen: () => void; text: string }) => (
 );
 
 /** Formulación (TSD 1): 4 preguntas con desbloqueo gradual y hasta 3 devoluciones didácticas por pregunta. */
-export function FormulationPanel({ correctLanes, answers, states, onAnswer, onFlush, onRequest, onOpenQuestion, onOpenTesting }: {
-  correctLanes: number; answers: FormulationAnswers; states: Record<number, FormulationQuestionState>; onAnswer: (qId: number, text: string) => void; onFlush: () => void;
+export function FormulationPanel({ correctLanes, totalLanes, answers, states, onAnswer, onFlush, onRequest, onOpenQuestion, onOpenTesting }: {
+  correctLanes: number; totalLanes: number; answers: FormulationAnswers; states: Record<number, FormulationQuestionState>; onAnswer: (qId: number, text: string) => void; onFlush: () => void;
   onRequest: (qId: number) => void; onOpenQuestion: (qId: number) => void; onOpenTesting: () => void;
 }) {
   const [active, setActive] = useState(1);
   const has = (k: keyof FormulationAnswers) => (answers[k] ?? '').trim().length > 0;
   const done = (id: number) => substantive(answers[`q${id}` as keyof FormulationAnswers]);
   /* Secuencial: cada pregunta exige la anterior habilitada y respondida con una explicación propia. */
-  const unlocked = (id: number): boolean => (id === 1 ? correctLanes >= 5 : id === 2 ? correctLanes >= 10 && done(1) : unlocked(id - 1) && done(id - 1));
+  const half = Math.ceil(totalLanes / 2);
+  const unlocked = (id: number): boolean => (id === 1 ? correctLanes >= half : id === 2 ? correctLanes >= totalLanes && done(1) : unlocked(id - 1) && done(id - 1));
   const needs = (id: number): string[] => {
-    if (id === 1) return correctLanes >= 5 ? [] : [`Completa al menos 5 escalones correctos en la escalera (llevas ${correctLanes}).`];
+    if (id === 1) return correctLanes >= half ? [] : [`Completa al menos ${half} escalones correctos en la escalera (llevas ${correctLanes}).`];
     const out: string[] = [];
-    if (id === 2 && correctLanes < 10) out.push(`Completa los 10 escalones de la escalera (llevas ${correctLanes}).`);
+    if (id === 2 && correctLanes < totalLanes) out.push(`Completa los ${totalLanes} escalones de la escalera (llevas ${correctLanes}).`);
     if (id > 2 && !unlocked(id - 1)) out.push(`Primero debe habilitarse la Pregunta ${id - 1}.`);
     else if (!done(id - 1)) out.push(`Responde la Pregunta ${id - 1} con tus palabras (al menos 4 palabras).`);
     return out;
@@ -42,7 +43,7 @@ export function FormulationPanel({ correctLanes, answers, states, onAnswer, onFl
       <div className="flex items-center justify-between border-b border-slate-200 pb-3">
         <div className="flex items-center gap-3"><div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500 text-white"><Brain size={20} /><span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-bl-md bg-accent" /></div>
           <div><p className="micro">Situaciones de formulación · TSD 1</p><h3 className="text-base text-slate-900">Panel de Formulación y Reflexión</h3></div></div>
-        <p className="micro hidden sm:block">{correctLanes} / 10 escalones completados</p>
+        <p className="micro hidden sm:block">{correctLanes} / {totalLanes} escalones completados</p>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{FORMULATION_QUESTIONS.map((x) => {
         const u = unlocked(x.id); const done = has(`q${x.id}` as keyof FormulationAnswers); const on = x.id === active;

@@ -1,3 +1,5 @@
+> **OBSOLETO (v1.1.0).** Esta app ya no usa el IM2 v2 descrito abajo: adopta el IM2 canónico de `immz-core` (unidades con devolución o pausa ≥ 5 s asociada ÷ unidades abordadas). Se conserva como registro histórico. Vigente: `ESTANDAR-IMMZ-CORE.md`.
+
 # ESTÁNDAR IM2 · Autoobservación (versión 2)
 
 Documento de revisión para las 5 apps. Complementa a `ESTANDAR-ANALISIS.md` (que fija el orden y el diseño del Análisis Metacognitivo) y a `CONTRATO-IMMZ.md` (que fija el formato del reporte). Este documento fija **qué mide IM2, cómo se calcula y qué debe registrar cada app para poder calcularlo igual en todas**.

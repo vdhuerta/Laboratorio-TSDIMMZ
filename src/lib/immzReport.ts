@@ -1,5 +1,6 @@
-import { APP_META, APP_VERSION, INDICATORS, INSTITUTION } from '../config';
-import { ACTIVITIES, ACTIVITY_META, ANCHOR_CONFIGS, FORMULATION_QUESTIONS, LANE_COUNT, TOTAL_LANES, TSD3_SIDES, isLaneCorrect, realTarget, rodOf, sideOf, stairNumber } from '../data/lab';
+import { APP_META, APP_VERSION, COMPAT_4_0_IDS, INDICATORS, INSTITUTION } from '../config';
+import { ENGINE_VERSION } from '../immz-core/constants';
+import { ACTIVITIES, ACTIVITY_META, ANCHOR_CONFIGS, FORMULATION_QUESTIONS, activeLanes, escalonOf, escalonesDe, formOf, formaDe, ladoOf, ladosDe, laneCount, piezasCerca, puenteMetas, sessionOpportunity, totalLanes, isLaneCorrect, realTarget, rodOf } from '../data/lab';
 import type { ActivityKey, LabEvent, RodInstance, Snapshot } from '../labTypes';
 import type { ImmzCategory } from '../types';
 import { categorize } from './immz/scoring';
@@ -8,14 +9,16 @@ import { ICON_SVG } from './reportIcons';
 import { buildAnalysisModel } from '../analysis/model';
 import type { IndicatorView } from '../analysis/standard';
 import { snapshotImage } from './snapshots';
-import { SCORING_VERSION, im2Detail, computeIndicators, computeStats, correctLanes, indicesOf, laneLengths, phaseJumps, promptKeys, stageProgress, type IndicatorResult, type SessionStats } from './metrics';
+import { evaluateAnswer, rubricaDe } from '../data/expected';
+import { computeIndicators, computeStats, correctLanes, formulacionModo, indicesOf, laneLengths, promptKeys, stageProgress, toImmzEvents, type IndicatorResult, type SessionStats } from './metrics';
 
 /**
- * CONTRATO DE REPORTE IMMZ (esquema 4.0) — Diario de Campo ⇄ Laboratorio TSD
+ * CONTRATO DE REPORTE IMMZ (esquema 4.0 + extensión 4.1) — Diario de Campo ⇄ Laboratorio TSD
  * ───────────────────────────────────────────────────────────────────────────
  * 1. El PRIMER <script type="application/json"> del archivo es el payload canónico (id "bct-report-payload").
  *    El parser del Diario toma el primero que encuentra, por eso las trazas van DESPUÉS (id "tsd-report-raw-data").
- * 2. Códigos IM1–IM10 del esquema 4.0 (nunca nombres): el parser los empareja por código.
+ * 2. Códigos IM1–IM10 del esquema 4.0 (nunca nombres): el parser los empareja por código. IM11 (motor 4.1) vive en el bloque `immz41`,
+ *    fuera del arreglo `indicators`, porque el Diario de hoy no lo conoce.
  * 3. Claves duplicadas en camelCase y snake_case, porque el parser del Diario normaliza solo algunas
  *    (classNumber, participant.name, apropiacion, aciertos, errores, reflexiones, schemaVersion, scenarioName).
  * 4. Valores 0–100; null = sin evidencia. Los índices se calculan con el mismo scoring del Diario.
@@ -36,11 +39,13 @@ export const makeCertificateId = (now: Date) => `${now.getFullYear()}${now.toLoc
 export const safeFileName = (name: string) => name.trim().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Participante';
 export const reportFileName = (name: string, id: string) => `${APP_META.filenamePrefix}${safeFileName(name)}_${id}.html`;
 
-export const laneLabel = (a: ActivityKey, idx: number) => (a === 'TSD1' ? `Escalón ${stairNumber(idx)}` : a === 'TSD2' ? `Vía ${idx + 1}` : sideOf(idx).name);
-/** Orden de lectura de los carriles de cada actividad (la cerca se lee L1→L4). */
-export const laneOrder = (a: ActivityKey) => (a === 'TSD3' ? TSD3_SIDES.map((s) => s.idx) : a === 'TSD1' ? Array.from({ length: LANE_COUNT.TSD1 }, (_, i) => LANE_COUNT.TSD1 - 1 - i) : Array.from({ length: LANE_COUNT[a] }, (_, i) => i));
+type Cfg = Snapshot['config'];
+export const laneLabel = (a: ActivityKey, idx: number, cfg: Cfg) => (a === 'TSD1' ? `Escalón ${escalonOf(cfg, idx).rotulo}` : a === 'TSD2' ? `Vía ${idx + 1}` : ladoOf(cfg, idx).name);
+/** Orden de lectura de los carriles (datos declarados): la escalera desde el escalón 1 (rótulo menor, abajo); la cerca L1→L4. */
+export const laneOrder = (a: ActivityKey, cfg: Cfg) => (a === 'TSD3' ? ladosDe(cfg).slice().sort((x, y) => x.label.localeCompare(y.label)).map((l) => l.idx)
+  : a === 'TSD1' ? activeLanes(a).sort((x, y) => escalonOf(cfg, x).rotulo - escalonOf(cfg, y).rotulo) : activeLanes(a));
 /** «Mensaje encriptado»: traducción de la construcción al código aditivo (colores → códigos). */
-export const encryptedMessage = (snap: Snapshot, a: ActivityKey) => laneOrder(a).map((i) => { const l = snap.lanes[a][i] ?? []; return `${a === 'TSD3' ? sideOf(i).label : (a === 'TSD1' ? 'ESC ' + stairNumber(i) : 'VÍA ' + (i + 1))}: ${l.length ? l.map((r) => r.code).join('-') : '[ ]'}`; });
+export const encryptedMessage = (snap: Snapshot, a: ActivityKey) => laneOrder(a, snap.config).map((i) => { const l = snap.lanes[a][i] ?? []; return `${a === 'TSD3' ? ladoOf(snap.config, i).label : (a === 'TSD1' ? 'ESC ' + escalonOf(snap.config, i).rotulo : `VÍA ${i + 1}`)}: ${l.length ? l.map((r) => r.code).join('-') : '[ ]'}`; });
 
 export const REPORT_CSS = `
 :root{--bg:#F2F1EC;--line:#E4E2D8;--ink:#23271F;--mut:#6E6F66;--brand:#24473A;--brand50:#EEF4F1;--brand100:#DCE8E2;--accent:#C98F2D;--accentsoft:#F6ECD6;--white:#fff}
@@ -126,8 +131,8 @@ const rodsHtml = (lane: RodInstance[], target: number) => {
   return `<div class="rods">${lane.map((r) => { const d = rodOf(r.length); return `<span class="rod" style="width:${Math.max(8, (r.length / total) * 100)}%;background:${d?.color ?? '#94a3b8'};color:${d?.text ?? '#fff'};border:1px solid ${d?.border ?? '#64748b'}" title="${esc(d?.name ?? 'Regleta')} (${r.length})">${r.length}</span>`; }).join('')}</div>`;
 };
 
-const eventLabel = (e: LabEvent): [string, string] => {
-  const lane = e.laneIndex !== undefined ? laneLabel(e.activity, e.laneIndex) : '';
+const eventLabel = (e: LabEvent, cfg: Cfg): [string, string] => {
+  const lane = e.laneIndex !== undefined ? laneLabel(e.activity, e.laneIndex, cfg) : '';
   const rod = e.rodLength ? `Regleta ${e.rodLength} (${rodOf(e.rodLength)?.name ?? ''})` : '';
   switch (e.type) {
     case 'place': return [e.payload?.rejected ? 'Colocación rechazada (no cabe)' : e.payload?.isOverflow || e.payload?.isWrong ? 'Colocación fuera de meta' : 'Colocación', `${rod} → ${lane}`];
@@ -135,9 +140,11 @@ const eventLabel = (e: LabEvent): [string, string] => {
     case 'test_area_open': return [e.payload?.open ? 'Abre Experimenta' : 'Cierra Experimenta', ACTIVITY_META[e.activity].short];
     case 'test_area_use': return ['Experimenta', rod];
     case 'question_open': return ['Pregunta de formulación abierta', `Pregunta ${e.questionId}`];
-    case 'question_answer': return ['Respuesta registrada', e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`];
+    case 'question_answer': return [`Respuesta registrada (${e.payload?.correcta ? 'correcta' : 'incorrecta'})`, e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`];
     case 'answer_revision': return ['Respuesta revisada', e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`];
     case 'devolution_request': return [e.payload?.scope === 'construction' ? 'Devolución didáctica de la construcción' : 'Devolución solicitada', `${e.payload?.scope === 'construction' ? `${ACTIVITY_META[e.activity].short}${lane ? ` · ${lane}` : ''}` : e.questionId ? `Pregunta ${e.questionId}` : `Anclaje ${e.activity}`} · nivel ${e.devolutionLevel ?? ''}`];
+    case 'devolution_open': return ['Abre la Devolución didáctica', `${ACTIVITY_META[e.activity].short}${lane ? ` · ${lane}` : ' · sin carril asociado'}`];
+    case 'judgment': return ['Juicio previo a validar', `${lane} · creyó ${e.payload?.declared ? 'correcto' : 'incorrecto'} · real: ${e.payload?.real ? 'correcto' : 'incorrecto'}`];
     case 'anchor_open': return ['Panel de anclajes abierto', e.activity];
     case 'formulation_panel_open': return ['Panel de formulación abierto', e.activity];
     case 'validation_success': return ['Carril validado', lane];
@@ -151,6 +158,9 @@ const eventLabel = (e: LabEvent): [string, string] => {
   }
 };
 
+/** Corrección de una respuesta (IM10): términos clave cumplidos/faltantes y datos descriptivos de extensión (fuera del cálculo). */
+const evalExtra = (k: keyof Snapshot['answers'], snap: Snapshot) => { const e = evaluateAnswer(k, snap.answers[k] || ''); const r = rubricaDe(k); return { criterio: `Toca al menos ${r.minimoGrupos} de ${r.grupos.length} grupos de términos equivalentes (${r.grupos.map((g) => g.nombre).join(', ')}).`, grupos_tocados: e.tocados, grupos_no_tocados: e.noTocados, terminos_acreditados: e.terminos, minimo_grupos: e.minimo, caracteres: e.caracteres, palabras: e.palabras }; };
+
 export function buildReport(input: ReportInput): BuiltReport {
   const now = input.now ?? new Date();
   const certificateId = input.certificateId ?? makeCertificateId(now);
@@ -158,22 +168,29 @@ export function buildReport(input: ReportInput): BuiltReport {
   const { snap } = input;
   const history = snap.history.slice().sort((a, b) => a.timestamp - b.timestamp);
   const indicators = computeIndicators(snap);
-  const idx = indicesOf(indicators);
+  // idxFull: motor 4.1, incluye IM11 (lo que ve la pantalla y el bloque immz41).
+  // idxCompat: lo que el Diario de hoy conoce (IM1–IM10): es lo que lleva el payload 4.0 y lo que verifica selfCheck.
+  const idxFull = indicesOf(indicators);
+  const idxCompat = indicesOf(indicators.filter((r) => r.code !== 'IM11'));
+  const im11 = indicators.find((r) => r.code === 'IM11') ?? null;
+  const judgmentEnabled = snap.config.judgmentEnabled;
+  const form = formOf(snap.config);
   const stats = computeStats(snap);
   const duration = history.length ? Math.max(0, Math.round((now.getTime() - history[0].timestamp) / 1000)) : 0;
   const cls = input.classNumber;
 
-  const payloadIndicators = INDICATORS.map((d) => {
-    const r = indicators.find((x) => x.code === d.id)!;
+  const payloadIndicators = COMPAT_4_0_IDS.map((id) => {
+    const d = INDICATORS.find((x) => x.id === id)!;
+    const r = indicators.find((x) => x.code === id)!;
     return { code: d.id, name: d.label, dimension: d.dimension, subdimension: d.sub, value: r.value, level: categorize(r.value), has_evidence: r.value !== null, evidence_n: r.denominator, feedback: r.feedback };
   });
-  const progression = ACTIVITIES.map((a) => { const ind = computeIndicators(snap, a); const ix = indicesOf(ind); return { actividad: a, immz: ix.immz, idcd: ix.idcd, immg: ix.immg, indicadores_con_evidencia: ind.filter((i) => i.value !== null).length, devoluciones_construccion: snap.history.filter((e) => e.activity === a && e.type === 'devolution_request' && e.payload?.scope === 'construction').length, carriles_correctos: correctLanes(snap, a), carriles_totales: LANE_COUNT[a], avance_pct: stageProgress(snap, a) }; });
-  const formulacion = [1, 2, 3, 4].map((q) => ({ pregunta: q, titulo: FORMULATION_QUESTIONS[q - 1].subhead, respuesta: snap.answers[`q${q}` as 'q1'] || '', devoluciones_consultadas: snap.formulationStates[q]?.devolutionLevel ?? 0, revisiones: snap.formulationStates[q]?.revisionsCount ?? 0 }));
-  const anclajes = (['TSD2', 'TSD3'] as const).map((a) => ({ actividad: a, titulo: ANCHOR_CONFIGS[a].title, subhead: ANCHOR_CONFIGS[a].subhead, enunciado: ANCHOR_CONFIGS[a].enunciado, respuesta: snap.answers[a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge'] || '', devoluciones_consultadas: snap.anchorStates[a].devolutionLevel, revisiones: snap.anchorStates[a].revisionsCount }));
+  const progression = ACTIVITIES.map((a) => { const ind = computeIndicators(snap, a); const ix = indicesOf(ind); return { actividad: a, immz: ix.immz, idcd: ix.idcd, immg: ix.immg, indicadores_con_evidencia: ind.filter((i) => i.value !== null).length, devoluciones_construccion: snap.history.filter((e) => e.activity === a && e.type === 'devolution_open').length, carriles_correctos: correctLanes(snap, a), carriles_totales: laneCount(a, snap.config), avance_pct: stageProgress(snap, a) }; });
+  const formulacion = [1, 2, 3, 4].map((q) => ({ pregunta: q, titulo: FORMULATION_QUESTIONS[q - 1].subhead, respuesta: snap.answers[`q${q}` as 'q1'] || '', correcta: evaluateAnswer(`q${q}` as 'q1', snap.answers[`q${q}` as 'q1'] || '').correcta, ...evalExtra(`q${q}` as 'q1', snap), devoluciones_consultadas: snap.formulationStates[q]?.devolutionLevel ?? 0, revisiones: snap.formulationStates[q]?.revisionsCount ?? 0 }));
+  const anclajes = (['TSD2', 'TSD3'] as const).map((a) => ({ actividad: a, titulo: ANCHOR_CONFIGS[a].title, subhead: ANCHOR_CONFIGS[a].subhead, enunciado: ANCHOR_CONFIGS[a].enunciado, respuesta: snap.answers[a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge'] || '', correcta: evaluateAnswer(a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge', snap.answers[a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge'] || '').correcta, ...evalExtra(a === 'TSD2' ? 'tsd2Bridge' : 'tsd3Bridge', snap), devoluciones_consultadas: snap.anchorStates[a].devolutionLevel, revisiones: snap.anchorStates[a].revisionsCount }));
 
   // ── Payload canónico (lo lee el Diario) ──
   const payload: Record<string, unknown> = {
-    schema_version: '4.0', schemaVersion: '4.0', scoring_version: SCORING_VERSION,
+    schema_version: '4.0', schemaVersion: '4.0', compat_schema: '4.0',
     app: { id: APP_META.id, name: APP_META.name, version: APP_VERSION },
     scenarioName: APP_META.scenarioName,
     class_number: cls, classNumber: cls,
@@ -181,12 +198,27 @@ export function buildReport(input: ReportInput): BuiltReport {
     certificate_id: certificateId,
     generatedAt: now.toISOString(), duration_seconds: duration,
     indicators: payloadIndicators,
-    immz: idx.immz, immz_ao: idx.immzAO, immz_ac: idx.immzAC, idcd: idx.idcd, immg: idx.immg, category: idx.category,
+    immz: idxCompat.immz, immz_ao: idxCompat.immzAO, immz_ac: idxCompat.immzAC, idcd: idxCompat.idcd, immg: idxCompat.immg, category: idxCompat.category,
     apropiacion: stats.appropriation, aciertos: stats.currentHits, errores: stats.currentErrors, reflexiones: stats.reflections, movimientos: stats.totalMoves,
     appropriation: { value: stats.appropriation, has_evidence: stats.hasEvidence, components: { accuracy: stats.accuracy, efficiency: stats.efficiency, reflection: stats.reflectionFactor }, weights: { accuracy: 0.5, efficiency: 0.25, reflection: 0.25 } },
     activity: { total_moves: stats.totalMoves, placements: stats.placements, hits: stats.currentHits, errors: stats.currentErrors, reflections: stats.reflections, devolutions: stats.devolutions, answers: stats.answered, items_assigned: stats.lanesTouched, items_total: stats.totalLanes },
     progression, formulation: formulacion, anchors: anclajes,
-    config: { target_units_tsd2: snap.config.targetUnits },
+    config: { form_id: snap.config.formId, target_units: snap.config.targetUnits },
+    // ── Bloque 4.1 (el Diario de hoy no lo conoce y lo ignora). Las tres actividades son UNA sesión y la forma (A/B/C) es de la sesión:
+    //    form_id / content_level / content_id van a este nivel. `session_form` declara el contenido numérico de la forma.
+    form_id: form.formId, content_level: form.contentLevel, content_id: form.contentId, session_seq: null,
+    opportunity_target: { ...sessionOpportunity(), piezas_cerca: piezasCerca(snap.config) },
+    session_form: { escalones: escalonesDe(snap.config).map((e) => ({ id: e.id, rotulo: e.rotulo, meta: e.meta })), puente_metas: puenteMetas(snap.config),
+      cerca: ladosDe(snap.config).map((l) => ({ label: l.label, registro: l.registro, pista: l.clue, patron: l.pattern, equivalentes: l.equivalentes ?? [] })) },
+    engine_version: ENGINE_VERSION,
+    immz41: {
+      im11: im11 ? { value: im11.value, numerator: im11.numerator, denominator: im11.denominator, formula: im11.formula } : null,
+      immz_ao: idxFull.immzAO, immz_ac: idxFull.immzAC, immz: idxFull.immz, idcd: idxFull.idcd, immg: idxFull.immg, category: idxFull.category,
+      engine_version: ENGINE_VERSION,
+      judgment_prompt: judgmentEnabled ? 'on' : 'off',
+      im10_modo: formulacionModo(snap),
+      im10_criterio: 'terminos_clave_provisional',
+    },
   };
 
   // ── Trazas crudas (no las lee el parser: van en un segundo bloque) ──
@@ -196,7 +228,9 @@ export function buildReport(input: ReportInput): BuiltReport {
     schema: 'immz-trace/1', app: payload.app, certificate_id: certificateId, class_number: cls, participant_name: name,
     started_at: history.length ? new Date(history[0].timestamp).toISOString() : null, ended_at: now.toISOString(), duration_seconds: duration,
     indicator_evidence: indicators.map((r) => ({ code: r.code, value: r.value, numerator: r.numerator, denominator: r.denominator, formula: r.formula })),
-    scoring: { version: SCORING_VERSION, im2: { unit: 'carril', units_worked: im2Detail(history).worked, credit: Math.round(im2Detail(history).credit * 10) / 10, detail: im2Detail(history).units } },
+    engine_version: ENGINE_VERSION,
+    // Eventos canónicos (immz-core) con los que se calcularon IM1–IM11: unidad = carril «TSD1:6». Permite auditar cada indicador.
+    canonical_events: toImmzEvents(snap),
     didactic_prompts: ACTIVITIES.map((a) => {
       const E = history.filter((e) => e.activity === a); const done = E.find((e) => e.type === 'activity_complete');
       const ins = done ? E.find((e) => e.type === 'instructions_open' && e.timestamp >= done.timestamp) : undefined;
@@ -204,8 +238,8 @@ export function buildReport(input: ReportInput): BuiltReport {
       const iso = (e?: LabEvent) => (e ? new Date(e.timestamp).toISOString() : null);
       return { activity: a, completed_at: iso(done), instructions_opened_at: iso(ins), instructions_prompted: ins?.payload?.prompted === true, didactic_opened_at: iso(dv), didactic_seconds: typeof dc?.payload?.seconds === 'number' ? dc.payload.seconds : null, seconds_to_didactic: done && dv ? Math.max(0, Math.round((dv.timestamp - done.timestamp) / 1000)) : null };
     }),
-    phase_jumps: phaseJumps(snap),
-    final_state: Object.fromEntries(ACTIVITIES.map((a) => [a, laneOrder(a).map((i) => ({ lane: i, label: laneLabel(a, i), target: realTarget(a, i, snap.config), rods: laneLengths(snap, a, i), is_correct: isLaneCorrect(a, i, laneLengths(snap, a, i), snap.config) }))])),
+    phase_jumps: toImmzEvents(snap).filter((e) => e.type === 'fase' && e.esSalto).map((e) => (e as { fase: string }).fase),
+    final_state: Object.fromEntries(ACTIVITIES.map((a) => [a, laneOrder(a, snap.config).map((i) => ({ lane: i, label: laneLabel(a, i, snap.config), target: realTarget(a, i, snap.config), rods: laneLengths(snap, a, i), is_correct: isLaneCorrect(a, i, laneLengths(snap, a, i), snap.config) }))])),
     answers: snap.answers, formulation_states: snap.formulationStates, anchor_states: snap.anchorStates, config: snap.config,
     trace,
   };
@@ -226,22 +260,22 @@ export function buildReport(input: ReportInput): BuiltReport {
   const ind = (sub: string) => m.indicators.filter((i) => (sub === 'B' ? i.dimension === 'B' : i.subdimension === sub));
   const ap = m.appropriation;
 
-  const kpi5 = ([['Apropiación Teórica', ap.hasEvidence ? f1(ap.value) : 'Sin evidencia', `Exactitud ${ap.accuracy}% · Efic. ${ap.efficiency}%`, ICON_SVG.grad, 'k-brand'], ['Aciertos (hoy)', String(stats.currentHits), `Carriles correctos de ${TOTAL_LANES}`, ICON_SVG.check, 'k-ok'], ['Errores', String(stats.currentErrors), 'Piezas fuera de meta o lado mal compuesto', ICON_SVG.x, 'k-no'], ['Movimientos', String(stats.totalMoves), 'Colocaciones y retiros de regletas', ICON_SVG.click, 'k-sky'], ['Devoluciones', String(stats.devolutions), 'Devoluciones didácticas consultadas', ICON_SVG.search, 'k-amber']] as [string, string, string, (s?: number) => string, string][])
+  const kpi5 = ([['Apropiación Teórica', ap.hasEvidence ? f1(ap.value) : 'Sin evidencia', `Exactitud ${ap.accuracy}% · Efic. ${ap.efficiency}%`, ICON_SVG.grad, 'k-brand'], ['Aciertos (hoy)', String(stats.currentHits), `Carriles correctos de ${totalLanes(snap.config)}`, ICON_SVG.check, 'k-ok'], ['Errores', String(stats.currentErrors), 'Piezas fuera de meta o lado mal compuesto', ICON_SVG.x, 'k-no'], ['Movimientos', String(stats.totalMoves), 'Colocaciones y retiros de regletas', ICON_SVG.click, 'k-sky'], ['Devoluciones', String(stats.devolutions), 'Devoluciones didácticas consultadas', ICON_SVG.search, 'k-amber']] as [string, string, string, (s?: number) => string, string][])
     .map(([l, v, h, ic, c]) => `<div class="kpi5 ${c}"><div><span class="micro">${l}</span><div class="kv">${v}</div><div class="kh">${h}</div></div><span class="kic">${ic(20)}</span></div>`).join('');
 
-  const progTable = `<table><thead><tr><th>Actividad</th><th>Carriles correctos</th><th>IMMZ (Monitoreo)</th><th>IDCD (Didáctica)</th><th>Indicadores con evidencia</th></tr></thead><tbody>${progression.map((p) => `<tr><td><b class="bt">${p.actividad}</b> · ${esc(ACTIVITY_META[p.actividad].name)}</td><td>${p.carriles_correctos} / ${p.carriles_totales}</td><td>${f1(p.immz)}</td><td>${f1(p.idcd)}</td><td>${p.indicadores_con_evidencia} / 10</td></tr>`).join('')}</tbody></table>`;
+  const progTable = `<table><thead><tr><th>Actividad</th><th>Carriles correctos</th><th>IMMZ (Monitoreo)</th><th>IDCD (Didáctica)</th><th>Indicadores con evidencia</th></tr></thead><tbody>${progression.map((p) => `<tr><td><b class="bt">${p.actividad}</b> · ${esc(ACTIVITY_META[p.actividad].name)}</td><td>${p.carriles_correctos} / ${p.carriles_totales}</td><td>${f1(p.immz)}</td><td>${f1(p.idcd)}</td><td>${p.indicadores_con_evidencia} / 11</td></tr>`).join('')}</tbody></table>`;
 
   const actBlock = (a: ActivityKey) => {
     const done = correctLanes(snap, a);
-    const lanes = laneOrder(a).map((i) => {
+    const lanes = laneOrder(a, snap.config).map((i) => {
       const lengths = laneLengths(snap, a, i); const t = realTarget(a, i, snap.config); const ok = isLaneCorrect(a, i, lengths, snap.config);
-      const clue = a === 'TSD3' ? ` · ${esc(sideOf(i).clue)}` : '';
-      return `<div class="ln ${ok ? 'ok' : 'no'}"><div class="k"><span>${esc(laneLabel(a, i))}${clue}</span><span class="pill ${ok ? 'c-adv' : lengths.length ? 'c-ini' : 'c-none'}" style="font-size:8px;padding:0 6px">${ok ? 'Correcto' : lengths.length ? 'Incompleto' : 'Sin iniciar'}</span></div>${rodsHtml(snap.lanes[a][i] ?? [], t)}<div class="s">${lengths.length ? `${lengths.join(' + ')} = ${lengths.reduce((s, l) => s + l, 0)}` : '—'}${a !== 'TSD1' ? ` / ${t}` : ''}</div></div>`;
+      const clue = a === 'TSD3' ? ` · ${esc(ladoOf(snap.config, i).clue)}` : '';
+      return `<div class="ln ${ok ? 'ok' : 'no'}"><div class="k"><span>${esc(laneLabel(a, i, snap.config))}${clue}</span><span class="pill ${ok ? 'c-adv' : lengths.length ? 'c-ini' : 'c-none'}" style="font-size:8px;padding:0 6px">${ok ? 'Correcto' : lengths.length ? 'Incompleto' : 'Sin iniciar'}</span></div>${rodsHtml(snap.lanes[a][i] ?? [], t)}<div class="s">${lengths.length ? `${lengths.join(' + ')} = ${lengths.reduce((s, l) => s + l, 0)}` : '—'} / ${t}</div></div>`;
     }).join('');
     const msg = encryptedMessage(snap, a);
-    return `<div class="act" data-activity="${a}"><h3><span>${a} · ${esc(ACTIVITY_META[a].name)} — ${esc(ACTIVITY_META[a].scene)}</span><span>${done} / ${LANE_COUNT[a]} carriles correctos</span></h3><div class="lanes">${lanes}</div><div class="code"><span class="micro" style="color:#C98F2D">Mensaje encriptado (código aditivo)</span>\n${esc(msg.join(a === 'TSD3' ? '  |  ' : '\n'))}</div></div>`;
+    return `<div class="act" data-activity="${a}"><h3><span>${a} · ${esc(ACTIVITY_META[a].name)} — ${esc(ACTIVITY_META[a].scene)}</span><span>${done} / ${laneCount(a, snap.config)} carriles correctos</span></h3><div class="lanes">${lanes}</div><div class="code"><span class="micro" style="color:#C98F2D">Mensaje encriptado (código aditivo)</span>\n${esc(msg.join(a === 'TSD3' ? '  |  ' : '\n'))}</div></div>`;
   };
-  const shots = `<div class="shots" data-testid="report-shots">${ACTIVITIES.map((a) => `<figure class="shot" data-activity="${a}"><div class="img"><img src="${snapshotImage(snap, a)}" alt="Construcción final ${a}"/></div><figcaption><b>${a}</b> · ${esc(ACTIVITY_META[a].name)}<span>${correctLanes(snap, a)} / ${LANE_COUNT[a]} carriles correctos</span></figcaption></figure>`).join('')}</div>`;
+  const shots = `<div class="shots" data-testid="report-shots">${ACTIVITIES.map((a) => `<figure class="shot" data-activity="${a}"><div class="img"><img src="${snapshotImage(snap, a)}" alt="Construcción final ${a}"/></div><figcaption><b>${a}</b> · ${esc(ACTIVITY_META[a].name)}<span>${correctLanes(snap, a)} / ${laneCount(a, snap.config)} carriles correctos</span></figcaption></figure>`).join('')}</div>`;
   const answerBlock = (title: string, sub: string, enun: string, text: string, devs: number, revs: number) => `<div class="ans"><div class="q"><span>${esc(title)}</span><span>Devoluciones consultadas: ${devs}/3 · Revisiones: ${revs}</span></div><p class="st">${esc(sub)} — ${esc(enun)}</p>${text.trim() ? `<p>${esc(text)}</p>` : '<p class="none">(Sin respuesta registrada)</p>'}</div>`;
 
   const bodyHtml = `<div class="wrap"><div class="sheet">
@@ -251,7 +285,7 @@ export function buildReport(input: ReportInput): BuiltReport {
     <div class="tiles" id="tsd-summary-container" data-activity-total-moves="${stats.totalMoves}" data-activity-hits="${stats.currentHits}" data-activity-errors="${stats.currentErrors}" data-activity-analyses="${stats.reflections}">
       <div class="tile plain"><span class="micro">Participante / Diseñador</span><div class="v" style="font-size:15px;color:var(--brand)" id="tsd-participant-name" data-value="${esc(name)}">${esc(name) || 'No especificado'}</div><div class="s">${esc(INSTITUTION)}</div></div>
       <div class="tile w" data-variable="appropriation" data-value="${ap.value ?? ''}"><span class="micro" style="color:var(--brand)">Apropiación teórica</span><div class="v" style="color:var(--brand)">${ap.hasEvidence ? f1(ap.value) : 'Sin evidencia'}</div><div class="s">Exactitud ${ap.accuracy} % · Eficiencia ${ap.efficiency} % · Reflexión ${ap.reflectionFactor} %</div></div>
-      <div class="tile w" data-variable="immg" data-value="${m.immg ?? ''}"><span class="micro" style="color:var(--brand)">Índice global (IMMG)</span><div class="v" style="color:var(--brand)">${f1(m.immg)}</div>${badge(idx.category)}</div>
+      <div class="tile w" data-variable="immg" data-value="${m.immg ?? ''}"><span class="micro" style="color:var(--brand)">Índice global (IMMG)</span><div class="v" style="color:var(--brand)">${f1(m.immg)}</div>${badge(idxFull.category)}</div>
       <div class="tile w"><span class="micro">Sub-índices metacognitivos</span><div class="mini"><div class="m1"><i>AO</i><b data-variable="IMMZ-AO" data-value="${m.immzAO ?? ''}">${f1(m.immzAO)}</b></div><div class="m1"><i>AC</i><b data-variable="IMMZ-AC" data-value="${m.immzAC ?? ''}">${f1(m.immzAC)}</b></div><div class="m1 g"><i>IMMZ</i><b data-variable="IMMZ" data-value="${m.immz ?? ''}">${f1(m.immz)}</b></div><div class="m1 e"><i>IDCD</i><b data-variable="IDCD" data-value="${m.idcd ?? ''}">${f1(m.idcd)}</b></div></div></div>
       <div class="tile w e" data-variable="idcd" data-value="${m.idcd ?? ''}"><span class="micro" style="color:#0284c7">Competencia didáctica (IDCD)</span><div class="v" style="color:#0369a1">${f1(m.idcd)}</div>${badge(categorize(m.idcd))}</div>
     </div>
@@ -261,7 +295,8 @@ export function buildReport(input: ReportInput): BuiltReport {
       <div class="kpis3" data-testid="kpis-dim1"><div class="kpi3"><i>IMMZ-AO</i><b>${f1(m.immzAO)}</b></div><div class="kpi3"><i>IMMZ-AC</i><b>${f1(m.immzAC)}</b></div><div class="kpi3 g"><i>IMMZ Global</i><b>${f1(m.immz)}</b></div></div>
       <div class="verdict a"><span class="t">Veredicto Dimensión 1: ${esc(m.verdictA.status)}</span><em>${esc(m.verdictA.desc)}</em></div>
       <div class="sub">${subhead('A1', 'Autoobservación', 'Procesos de atención reflexiva, vigilancia cognitiva y detención deliberada previa a la acción (Zimmerman &amp; Moylan, 2009).', 'IMMZ-AO', m.immzAO, 'IMMZ-AO')}<div class="grid2">${ind('AO').map((i) => card(i, '#4f46e5')).join('')}</div></div>
-      <div class="sub">${subhead('A2', 'Autocontrol', 'Estrategias de autorregulación activa durante la tarea: detección y autocorrección de errores, retroalimentación y resiliencia.', 'IMMZ-AC', m.immzAC, 'IMMZ-AC')}<div class="grid2">${ind('AC').map((i) => card(i, '#4f46e5')).join('')}</div></div></div>
+      <div class="sub">${subhead('A2', 'Autocontrol', 'Estrategias de autorregulación activa durante la tarea: detección y autocorrección de errores, retroalimentación y resiliencia.', 'IMMZ-AC', m.immzAC, 'IMMZ-AC')}<div class="grid2">${ind('AC').map((i) => card(i, '#4f46e5')).join('')}</div></div>
+      <p data-testid="nota-im11" style="margin:14px 0 0;font-size:11px;font-style:italic;color:#64748b;border-top:1px solid #e2e8f0;padding-top:8px">IM11 pertenece al bloque 4.1 del esquema; mientras el Diario de Campo no se actualice, calcula los índices sin él, por lo que sus valores pueden diferir de los de este reporte.</p></div>
 
     <div class="sec"><h2><i style="background:#0ea5e9"></i>2. ${esc(cfg.dimB.title)}<span class="pill c-none" style="margin-left:auto" data-variable="IDCD" data-value="${m.idcd ?? ''}">IDCD: ${f1(m.idcd)}</span></h2>
       <div class="kpis3"><div class="kpi3 e"><i>${esc(cfg.dimB.subIndexLabel)}</i><b>${f1(m.idcd)}</b></div></div>
@@ -274,7 +309,7 @@ export function buildReport(input: ReportInput): BuiltReport {
       <tr><td><b class="bt">4.2 Analíticas de aprendizaje</b></td><td>Análisis de datos y evidencias sobre el desempeño del estudiantado para informar la enseñanza.</td><td>${esc(cfg.digcomp.implement42)}</td></tr>
       <tr><td><b class="bt">4.3 Retroalimentación y toma de decisiones</b></td><td>Ofrecer retroalimentación oportuna y usar la información para adaptar la enseñanza y apoyar la toma de decisiones del estudiante.</td><td>${esc(cfg.digcomp.implement43)}</td></tr></tbody></table></div>
 
-    <div class="sec"><h2><i style="background:#64748b"></i>4. Hoja de trabajo y construcciones<span class="pill c-none" style="margin-left:auto">${stats.currentHits} / ${TOTAL_LANES} carriles correctos</span></h2>
+    <div class="sec"><h2><i style="background:#64748b"></i>4. Hoja de trabajo y construcciones<span class="pill c-none" style="margin-left:auto">${stats.currentHits} / ${totalLanes(snap.config)} carriles correctos</span></h2>
       <div class="kpis5" data-testid="kpis-trabajo">${kpi5}</div>
       <p class="micro" style="margin:0 0 6px">Progresión por actividad</p>${progTable}
       <p class="micro" style="margin:16px 0 8px">Pantallazo de las producciones finales</p>${shots}<p class="micro" style="margin:16px 0 8px">Construcciones finales y mensaje encriptado</p>${ACTIVITIES.map(actBlock).join('')}
@@ -282,7 +317,7 @@ export function buildReport(input: ReportInput): BuiltReport {
       <p class="micro" style="margin:16px 0 8px">Anclajes conceptuales (TSD 2 y TSD 3)</p>${anclajes.map((x) => answerBlock(x.titulo, x.subhead, x.enunciado, x.respuesta, x.devoluciones_consultadas, x.revisiones)).join('')}</div>
 
     <div class="sec"><h2><i style="background:var(--brand)"></i>5. Bitácora de Monitoreo Activo</h2><p class="micro" style="text-transform:none;letter-spacing:0;margin:-4px 0 10px">Historial secuencial de vigilancia cognitiva capturado en tiempo real durante la construcción con regletas y la formulación.</p>
-      <table><thead><tr><th style="width:90px">Hora</th><th style="width:210px">Acción registrada</th><th>Detalle del evento</th></tr></thead><tbody>${history.length ? history.slice().reverse().map((e) => { const [a, d] = eventLabel(e); return `<tr><td class="mono">${esc(new Date(e.timestamp).toLocaleTimeString('es-CL'))}</td><td><b class="bt">${esc(a)}</b></td><td>${esc(d)}</td></tr>`; }).join('') : '<tr><td colspan="3" style="text-align:center;font-style:italic;color:var(--mut)">No se han registrado interacciones aún.</td></tr>'}</tbody></table></div>
+      <table><thead><tr><th style="width:90px">Hora</th><th style="width:210px">Acción registrada</th><th>Detalle del evento</th></tr></thead><tbody>${history.length ? history.slice().reverse().map((e) => { const [a, d] = eventLabel(e, snap.config); return `<tr><td class="mono">${esc(new Date(e.timestamp).toLocaleTimeString('es-CL'))}</td><td><b class="bt">${esc(a)}</b></td><td>${esc(d)}</td></tr>`; }).join('') : '<tr><td colspan="3" style="text-align:center;font-style:italic;color:var(--mut)">No se han registrado interacciones aún.</td></tr>'}</tbody></table></div>
 
     <div class="sec note"><h3>Fundamentación teórica del diagnóstico</h3>${esc(cfg.foundation)}</div>
     <div class="foot"><span>© 2026 ${esc(INSTITUTION)}</span><span>${esc(APP_META.name)} v${APP_VERSION}</span></div>
@@ -303,7 +338,7 @@ export function buildReport(input: ReportInput): BuiltReport {
 ${bodyHtml}
 </body>
 </html>`;
-  return { html, bodyHtml, css: REPORT_CSS, fileName: reportFileName(name, certificateId), certificateId, payload, indicators, stats, indices: idx };
+  return { html, bodyHtml, css: REPORT_CSS, fileName: reportFileName(name, certificateId), certificateId, payload, indicators, stats, indices: idxCompat };
 }
 
 /** Autovalidación: lee el HTML generado con el parser del Diario y compara contra lo calculado. */
@@ -311,7 +346,8 @@ export function selfCheck(r: BuiltReport, expectedClass: number | null, expected
   const p = parseReportText(r.html, r.fileName);
   const issues: string[] = [];
   const eq = (a: number | null | undefined, b: number | null | undefined) => (a ?? null) === (b ?? null);
-  INDICATORS.forEach((d) => { const got = p.indicators.find((i) => i.id === d.id)?.value ?? null; const exp = r.indicators.find((i) => i.code === d.id)?.value ?? null; if (!eq(got, exp)) issues.push(`${d.id}: el Diario leería ${got} y la app calculó ${exp}`); });
+  // Solo IM1–IM10: el Diario de hoy no conoce IM11 (vive en el bloque immz41).
+  COMPAT_4_0_IDS.forEach((id) => { const d = INDICATORS.find((x) => x.id === id)!; const got = p.indicators.find((i) => i.id === d.id)?.value ?? null; const exp = r.indicators.find((i) => i.code === d.id)?.value ?? null; if (!eq(got, exp)) issues.push(`${d.id}: el Diario leería ${got} y la app calculó ${exp}`); });
   (['immz', 'immzAO', 'immzAC', 'idcd', 'immg'] as const).forEach((k) => { const exp = ({ immz: r.indices.immz, immzAO: r.indices.immzAO, immzAC: r.indices.immzAC, idcd: r.indices.idcd, immg: r.indices.immg })[k]; if (!eq(p[k], exp)) issues.push(`${k}: ${p[k]} ≠ ${exp}`); });
   if (p.classNumber !== expectedClass) issues.push(`Clase leída ${p.classNumber} ≠ ${expectedClass}`);
   if (p.simulator !== APP_META.name) issues.push(`APP leída «${p.simulator}» ≠ «${APP_META.name}»`);

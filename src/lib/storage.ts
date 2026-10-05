@@ -1,14 +1,18 @@
-import { ACTIVITIES, LANE_COUNT } from '../data/lab';
+import { ACTIVITIES, DEFAULT_FORM, FORMAS, LANE_COUNT, TARGET_DEFAULT, TARGET_MAX, TARGET_MIN } from '../data/lab';
 import type { ActivityKey, AnchorState, FormulationAnswers, FormulationQuestionState, LabEvent, LanesByActivity, RodInstance, TestAreaPiece } from '../labTypes';
 
-const KEY = 'ltsd_session_v1';
+const KEY = 'ltsd_session_v2'   // v2: sesión de 18 carriles (10/4/4); las sesiones v1 tenían otra estructura y se descartan;
 const K_NAME = 'ltsd_participant_name';
 const K_CLS = 'ltsd_class_number';
 
 export interface Session {
   activeActivity: ActivityKey;
   showIntro: boolean;
+  /** Forma de la sesión (A/B/C) y meta de las vías del puente (5 a 7) en la forma A. */
+  formId: 'A' | 'B' | 'C';
   targetUnits: number;
+  /** Pregunta previa «¿Crees que este carril está completo y correcto?» (IM11). */
+  judgmentEnabled: boolean;
   inventoryCount: number;
   lanes: LanesByActivity;
   testArea: Record<ActivityKey, TestAreaPiece[]>;
@@ -23,7 +27,7 @@ export const emptyAnswers = (): FormulationAnswers => ({ q1: '', q2: '', q3: '',
 export const emptyFormulation = (): Record<number, FormulationQuestionState> => ({ 1: { id: 1, answer: '', devolutionLevel: 0, revisionsCount: 0 }, 2: { id: 2, answer: '', devolutionLevel: 0, revisionsCount: 0 }, 3: { id: 3, answer: '', devolutionLevel: 0, revisionsCount: 0 }, 4: { id: 4, answer: '', devolutionLevel: 0, revisionsCount: 0 } });
 export const emptyAnchors = (): Record<'TSD2' | 'TSD3', AnchorState> => ({ TSD2: { devolutionLevel: 0, revisionsCount: 0, lastUnlockedAt: null }, TSD3: { devolutionLevel: 0, revisionsCount: 0, lastUnlockedAt: null } });
 export const freshSession = (): Session => ({
-  activeActivity: 'TSD1', showIntro: true, targetUnits: 6, inventoryCount: 4, lanes: emptyLanes(), testArea: { TSD1: [], TSD2: [], TSD3: [] },
+  activeActivity: 'TSD1', showIntro: true, formId: DEFAULT_FORM, targetUnits: TARGET_DEFAULT, judgmentEnabled: true, inventoryCount: 4, lanes: emptyLanes(), testArea: { TSD1: [], TSD2: [], TSD3: [] },
   answers: emptyAnswers(), formulationStates: emptyFormulation(), anchorStates: emptyAnchors(), history: [],
 });
 
@@ -38,6 +42,7 @@ export const storage = {
       return {
         ...d, ...s, lanes, testArea: { ...d.testArea, ...(s.testArea ?? {}) }, answers: { ...d.answers, ...(s.answers ?? {}) },
         formulationStates: { ...d.formulationStates, ...(s.formulationStates ?? {}) }, anchorStates: { ...d.anchorStates, ...(s.anchorStates ?? {}) },
+        formId: FORMAS.some((f) => f.id === s.formId) ? s.formId! : DEFAULT_FORM, targetUnits: Math.min(TARGET_MAX, Math.max(TARGET_MIN, Number(s.targetUnits) || TARGET_DEFAULT)), judgmentEnabled: s.judgmentEnabled !== false,
         history: Array.isArray(s.history) ? s.history : [],
       };
     } catch { return d; }

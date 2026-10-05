@@ -1,4 +1,4 @@
-import { HOUSE_IMAGE, stairNumber, LANE_COUNT, TSD3_SIDES, isLaneCorrect, isLaneFlagged, realTarget, sideOf, visualCapacity, BG_IMAGES } from '../data/lab';
+import { HOUSE_IMAGE, activeLanes, escalonOf, isLaneCorrect, isLaneFlagged, ladosDe, realTarget, visualCapacity, BG_IMAGES } from '../data/lab';
 import type { ActivityKey, LabConfig, RodInstance } from '../labTypes';
 import { LaneView } from './Rods';
 
@@ -16,34 +16,35 @@ export default function Scene({ act, lanes, cfg, showCounter, showNumber, placeM
       onRemove={(id, len) => onRemove(idx, id, len)} onPlaceSelected={() => onPlaceSelected(idx)} align={extra.align} label={extra.label} />;
   };
   const bg = BG_IMAGES[act];
-
   const help = <p className="micro absolute inset-x-0 bottom-1.5 z-10 mx-auto w-fit max-w-full rounded-md bg-white/80 px-2 py-0.5 text-center !text-[9px]" data-testid="scene-help">Arrastra regletas a cada carril · clic en una regleta puesta para quitarla (sin regleta elegida)</p>;
   if (act === 'TSD1') return (
     <div className="flex flex-1 justify-center overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="scene-TSD1">
-      <div className="relative aspect-[1415/823] min-h-[480px] w-full bg-cover bg-bottom bg-no-repeat" style={{ backgroundImage: `url("${bg}")` }}>
-        <div className="absolute bottom-[9%] right-[28.5%] z-10 flex flex-col items-end gap-[3px]" data-testid="stairs">{Array.from({ length: LANE_COUNT.TSD1 }, (_, i) => mk(i, 'h', { align: 'end', label: `Escalón ${stairNumber(i)}` }))}</div>
+      <div className="relative aspect-[1415/823] min-h-[560px] w-full bg-cover bg-bottom bg-no-repeat" style={{ backgroundImage: `url("${bg}")` }}>
+        <div className="absolute bottom-[9%] right-[28.5%] z-10 flex flex-col items-end gap-[3px]" data-testid="stairs">{activeLanes('TSD1', cfg).map((i) => mk(i, 'h', { align: 'end', label: `Escalón ${escalonOf(cfg, i).rotulo}` }))}</div>
         {help}
       </div>
     </div>);
   if (act === 'TSD2') return (
     <div className="flex flex-1 justify-center overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid="scene-TSD2">
       <div className="relative aspect-[640/580] min-h-[520px] w-full max-w-[640px] bg-cover bg-bottom bg-no-repeat" style={{ backgroundImage: `url("${bg}")` }}>
-        <div className="absolute inset-x-0 bottom-[12.5%] z-10 flex items-end justify-center gap-5" data-testid="bridge">{Array.from({ length: LANE_COUNT.TSD2 }, (_, i) => (
+        <div className="absolute inset-x-0 bottom-[12.5%] z-10 flex items-end justify-center gap-5" data-testid="bridge">{activeLanes('TSD2', cfg).map((i) => (
           <div key={i} className="relative">{mk(i, 'v', { label: `Vía ${i + 1}` })}<span className="micro absolute left-1/2 top-full mt-1 -translate-x-1/2 rounded-md border border-slate-200 bg-white/90 px-1.5 py-0.5 !text-[9px]">V{i + 1}</span></div>))}</div>
         {help}
       </div>
     </div>);
+  const sides = ladosDe(cfg);
+  const box = realTarget(act, sides[0].idx, cfg) * 28 + 64;           // lado de la cerca = largo del carril + pilares (400 px para el perímetro 12)
   const sideLens = (i: number) => (lanes[i] ?? []).map((r) => r.length);
   const okSide = (i: number) => isLaneCorrect(act, i, sideLens(i), cfg);
   const badSide = (i: number) => isLaneFlagged(act, i, sideLens(i), cfg);
-  const allOk = TSD3_SIDES.every((s) => okSide(s.idx));
-  const clues = <p className="micro absolute inset-x-0 bottom-6 z-10 mx-auto w-fit max-w-[95%] rounded-md bg-white/80 px-2 py-0.5 text-center !text-[10px]" data-testid="scene-clues">{sideOf(3).label}: «{sideOf(3).clue}» · {sideOf(0).label}: «{sideOf(0).clue}» · {sideOf(1).label}: «{sideOf(1).clue}» · {sideOf(2).label}: «{sideOf(2).clue}»</p>;
+  const allOk = sides.every((s) => okSide(s.idx));
+  const clues = <p className="micro absolute inset-x-0 bottom-2 z-10 mx-auto w-fit max-w-[95%] rounded-md bg-white/80 px-2 py-0.5 text-center !text-[10px]" data-testid="scene-clues">{sides.map((s) => `${s.label}: «${s.clue}»`).join(' · ')}</p>;
   return (
     <div className="flex flex-1 justify-center overflow-hidden rounded-xl border border-slate-200 bg-white" data-testid={`scene-${act}`}>
-      <div className="relative flex min-h-[620px] w-full items-center justify-center bg-no-repeat" style={{ backgroundImage: `url("${HOUSE_IMAGE}")`, backgroundSize: '11rem', backgroundPosition: 'center' }}>
-        <div className={`relative z-10 h-[400px] w-[400px] rounded-lg transition ${reveal && allOk ? 'ring-4 ring-emerald-400/80 ring-offset-8 ring-offset-white' : ''}`} data-testid="fence" data-all-correct={allOk ? '1' : '0'}>
+      <div className="relative flex min-h-[640px] w-full items-center justify-center bg-no-repeat" style={{ backgroundImage: `url("${HOUSE_IMAGE}")`, backgroundSize: '11rem', backgroundPosition: 'center' }}>
+        <div className={`relative z-10 rounded-lg transition ${reveal && allOk ? 'ring-4 ring-emerald-400/80 ring-offset-8 ring-offset-white' : ''}`} style={{ width: box, height: box }} data-testid="fence" data-all-correct={allOk ? '1' : '0'}>
           {['left-0 top-0', 'right-0 top-0', 'bottom-0 left-0', 'bottom-0 right-0'].map((p) => <div key={p} className={`absolute ${p} z-20 h-[34px] w-[34px] rounded border-2 border-white bg-black shadow-md`} title="Pilar" />)}
-          {TSD3_SIDES.map((s) => {
+          {sides.map((s) => {
             const pos = s.idx === 3 ? 'left-0 top-[34px]' : s.idx === 0 ? 'left-[34px] top-0' : s.idx === 1 ? 'right-0 top-[34px]' : 'bottom-0 left-[34px]';
             const lab = s.idx === 3 ? 'left-[-52px] top-1/2 -translate-y-1/2' : s.idx === 1 ? 'right-[-52px] top-1/2 -translate-y-1/2' : s.idx === 0 ? 'left-1/2 top-[-30px] -translate-x-1/2' : 'bottom-[-30px] left-1/2 -translate-x-1/2';
             const horizontal = s.idx === 0 || s.idx === 2;

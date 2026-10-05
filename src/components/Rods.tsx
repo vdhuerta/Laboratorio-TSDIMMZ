@@ -21,7 +21,7 @@ export function DepositRod({ length, count, selected, showNumber, onSelect }: { 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `rod-${length}`, data: { length }, disabled: count <= 0 });
   const r = rodOf(length)!;
   return (
-    <div className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 transition ${selected ? 'border-brand-500 bg-brand-50' : 'border-transparent hover:bg-slate-100'} ${count <= 0 ? 'opacity-40' : ''}`} data-deposit={length}>
+    <div className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 transition ${selected ? 'border-brand-500 bg-brand-50' : 'border-transparent hover:bg-slate-100'} ${count <= 0 ? 'opacity-40' : ''}`} data-deposit={length} data-selected={selected ? '1' : '0'}>
       <div ref={setNodeRef} {...attributes} {...listeners} onClick={() => count > 0 && onSelect()} data-testid={`rod-${length}`} title={count > 0 ? `Regleta ${r.name}` : 'Sin unidades disponibles'}
         className={`group touch-none ${count > 0 ? 'cursor-grab active:cursor-grabbing' : 'cursor-not-allowed grayscale'}`} style={{ opacity: isDragging ? 0.35 : 1 }}>
         <RodBar length={length} unit={13} showNumber={showNumber} className="shadow-xs" style={{ height: 13 }} />

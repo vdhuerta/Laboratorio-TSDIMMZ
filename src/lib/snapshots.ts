@@ -1,4 +1,4 @@
-import { LANE_COUNT, TSD3_SIDES, UNIT_SIZE, ROD_WIDTH, rodOf, visualCapacity } from '../data/lab';
+import { LANE_COUNT, ROD_WIDTH, UNIT_SIZE, activeLanes, ladosDe, realTarget, rodOf, visualCapacity } from '../data/lab';
 import type { ActivityKey } from '../labTypes';
 import type { Snapshot } from '../labTypes';
 import volantin from '../assets/thumbs/volantin.jpg';
@@ -28,33 +28,35 @@ const svgWrap = (w: number, h: number, body: string, bg = '#ffffff') => `<svg xm
 const txt = (x: number, y: number, s: string, size: number, fill = '#C98F2D') => `<text x="${x}" y="${y}" font-family="Inter,Arial,sans-serif" font-size="${size}" font-weight="700" text-anchor="middle" fill="${fill}">${s}</text>`;
 
 function svgTSD1(snap: Snapshot): string {
-  const k = 1.736, w = 1415, h = 823; const cap = visualCapacity('TSD1', 0, snap.config);
+  const k = 1.75, w = 1415, h = 823; const cap = visualCapacity('TSD1', 0, snap.config);
   const laneW = (cap * UNIT_SIZE + 4) * k, laneH = (ROD_WIDTH + 6) * k, gap = 3 * k, n = LANE_COUNT.TSD1;
   const right = w * (1 - 0.285), bottom = h * (1 - 0.09), top = bottom - (n * laneH + (n - 1) * gap);
   let b = `<image href="${volantin}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMax slice"/>`;
   for (let i = 0; i < n; i++) b += lane(L(snap, 'TSD1', i), cap, right - laneW, top + i * (laneH + gap), k, 'h', 'end');
   return svgWrap(w, h, b);
 }
+/** El puente: 4 vías en un panel de 640 × 580. */
 function svgTSD2(snap: Snapshot): string {
-  const w = 640, h = 580, k = 1, n = LANE_COUNT.TSD2, gap = 20, laneW = (ROD_WIDTH + 6) * k;
+  const w = 640, h = 580, k = 1, gap = 20, laneW = (ROD_WIDTH + 6) * k, n = LANE_COUNT.TSD2;
   const total = n * laneW + (n - 1) * gap, x0 = (w - total) / 2, bottom = h * (1 - 0.125);
   let b = `<image href="${castillo}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMax slice"/>`;
-  for (let i = 0; i < n; i++) {
-    const cap = visualCapacity('TSD2', i, snap.config); const x = x0 + i * (laneW + gap);
-    b += lane(L(snap, 'TSD2', i), cap, x, bottom - (cap * UNIT_SIZE + 4), k, 'v') + txt(x + laneW / 2, bottom + 16, `V${i + 1}`, 12, '#475569');
-  }
+  activeLanes('TSD2').forEach((idx, i) => {
+    const cap = visualCapacity('TSD2', idx, snap.config); const x = x0 + i * (laneW + gap);
+    b += lane(L(snap, 'TSD2', idx), cap, x, bottom - (cap * UNIT_SIZE + 4), k, 'v') + txt(x + laneW / 2, bottom + 16, `V${i + 1}`, 12, '#475569');
+  });
   return svgWrap(w, h, b);
 }
+/** La casa con su cerca en un panel de 600 × 600. */
 function svgTSD3(snap: Snapshot): string {
-  const w = 480, h = 480, f = 400, ox = 40, oy = 40, k = 1, p = 34;
-  let b = `<image href="${home}" x="${w / 2 - 88}" y="${h / 2 - 88}" width="176" height="176"/>`;
+  const W = 600, sides = ladosDe(snap.config), S = realTarget('TSD3', sides[0].idx, snap.config), f = S * 28 + 64, ox2 = (W - f) / 2, oy = (W - f) / 2, k = 1, p = 34;
+  let b = `<image href="${home}" x="${W / 2 - 88}" y="${W / 2 - 88}" width="176" height="176"/>`;
   const cap = (i: number) => visualCapacity('TSD3', i, snap.config);
-  const pos: Record<number, [number, number, 'h' | 'v']> = { 3: [ox, oy + p, 'v'], 0: [ox + p, oy, 'h'], 1: [ox + f - (ROD_WIDTH + 6), oy + p, 'v'], 2: [ox + p, oy + f - (ROD_WIDTH + 6), 'h'] };
-  TSD3_SIDES.forEach((s) => { const [x, y, d] = pos[s.idx]; b += lane(L(snap, 'TSD3', s.idx), cap(s.idx), x, d === 'v' ? y : y, k, d); });
-  [[ox, oy], [ox + f - p, oy], [ox, oy + f - p], [ox + f - p, oy + f - p]].forEach(([x, y]) => { b += `<rect x="${x}" y="${y}" width="${p}" height="${p}" rx="4" fill="#000" stroke="#fff" stroke-width="2"/>`; });
-  const lab: Record<number, [number, number]> = { 3: [ox - 24, oy + f / 2 + 4], 0: [ox + f / 2, oy - 12], 1: [ox + f + 24, oy + f / 2 + 4], 2: [ox + f / 2, oy + f + 22] };
-  TSD3_SIDES.forEach((s) => { b += txt(lab[s.idx][0], lab[s.idx][1], s.label, 14); });
-  return svgWrap(w, h, b);
+  const pos: Record<number, [number, number, 'h' | 'v']> = { 3: [ox2, oy + p, 'v'], 0: [ox2 + p, oy, 'h'], 1: [ox2 + f - (ROD_WIDTH + 6), oy + p, 'v'], 2: [ox2 + p, oy + f - (ROD_WIDTH + 6), 'h'] };
+  sides.forEach((s) => { const [x, y, d] = pos[s.idx]; b += lane(L(snap, 'TSD3', s.idx), cap(s.idx), x, y, k, d); });
+  [[ox2, oy], [ox2 + f - p, oy], [ox2, oy + f - p], [ox2 + f - p, oy + f - p]].forEach(([x, y]) => { b += `<rect x="${x}" y="${y}" width="${p}" height="${p}" rx="4" fill="#000" stroke="#fff" stroke-width="2"/>`; });
+  const lab: Record<number, [number, number]> = { 3: [ox2 - 24, oy + f / 2 + 4], 0: [ox2 + f / 2, oy - 12], 1: [ox2 + f + 24, oy + f / 2 + 4], 2: [ox2 + f / 2, oy + f + 22] };
+  sides.forEach((s) => { b += txt(lab[s.idx][0], lab[s.idx][1], s.label, 14); });
+  return svgWrap(W, W, b);
 }
 
 /** Data-URI de la miniatura de cada actividad. */

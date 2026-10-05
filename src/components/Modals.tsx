@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronRight, FlaskConical, GraduationCap, Info, Lightbulb, Lock, Send, Trophy } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronRight, FlaskConical, GraduationCap, Info, Lightbulb, Lock, Scale, Send, Trophy, XCircle } from 'lucide-react';
 import { ADMIN_DEFAULT_PIN, APP_META } from '../config';
 import { PLAN_CLASSES } from '../data/plan';
-import { ACTIVITY_META, HEADER_IMAGE, INTRO, TSD3_SIDES } from '../data/lab';
-import type { ActivityKey, Snapshot } from '../labTypes';
+import { ACTIVITY_META, FORMAS, HEADER_IMAGE, INTRO, TARGET_MAX, TARGET_MIN, formaDe, ladosDe } from '../data/lab';
+import type { ActivityKey, LabConfig, Snapshot } from '../labTypes';
 import { encryptedMessage } from '../lib/immzReport';
 import { Modal } from './ui';
 
@@ -22,7 +22,7 @@ export function IntroModal({ open, onStart }: { open: boolean; onStart: () => vo
   );
 }
 
-export function InstructionsModal({ open, act, targetUnits, complete, pulseDidactic, onClose, onDidacticOpen, onDidacticClose }: { open: boolean; act: ActivityKey; targetUnits: number; complete: boolean; pulseDidactic: boolean; onClose: () => void; onDidacticOpen: () => void; onDidacticClose: () => void }) {
+export function InstructionsModal({ open, act, cfg, complete, pulseDidactic, onClose, onDidacticOpen, onDidacticClose }: { open: boolean; act: ActivityKey; cfg: LabConfig; complete: boolean; pulseDidactic: boolean; onClose: () => void; onDidacticOpen: () => void; onDidacticClose: () => void }) {
   const [didactic, setDidactic] = useState(false);
   useEffect(() => { if (!open) setDidactic(false); }, [open]);
   const t = INTRO[act];
@@ -33,7 +33,7 @@ export function InstructionsModal({ open, act, targetUnits, complete, pulseDidac
         <div className="rounded-xl bg-brand-500 p-4 text-white"><p className="micro !text-accent">Qué ocurre cuando construyes la cerca</p><p className="mt-1 text-sm leading-relaxed">Cada lado de la casa llega como una <b className="text-accent">frase</b> (una pista) y tú la conviertes en <b className="text-accent">regletas</b> que, puestas en fila, llenan el lado completo. Esta situación articula la <i>Teoría de las Situaciones Didácticas</i> de Guy Brousseau con los <i>Registros de Representación Semiótica</i> de Raymond Duval.</p></div>
         <section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-2 text-xs uppercase tracking-widest text-brand-500">1. Registros de representación (Duval)</h4>
           <p>Cada lado se expresa en más de un registro, y la cerca exige pasar de uno a otro:</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5"><li><b>Lengua natural:</b> «Cuatro veces 3», «Doble de 4 más 4», «Dos grupos de seis».</li><li><b>Simbólico / algebraico:</b> «2n+2», y la expresión numérica que tú escribes en tus formulaciones.</li><li><b>Icónico / gráfico:</b> las regletas en fila sobre el lado de la casa.</li></ul>
+          <ul className="mt-2 list-disc space-y-1 pl-5"><li><b>Lengua natural:</b> {ladosDe(cfg).filter((l) => l.registro !== 'algebraico').sort((x, y) => x.label.localeCompare(y.label)).map((l) => `«${l.clue}»`).join(', ')}.</li><li><b>Simbólico / algebraico:</b> «{ladosDe(cfg).find((l) => l.registro === 'algebraico')?.clue}», y la expresión numérica que tú escribes en tus formulaciones.</li><li><b>Icónico / gráfico:</b> las regletas en fila sobre el lado de la casa.</li></ul>
           <p className="mt-2"><b>Conversión:</b> pasar de la frase o de la expresión a las regletas, y de las regletas de vuelta a la expresión. <b>Tratamiento:</b> operar dentro de un mismo registro, por ejemplo calcular mentalmente el valor de una expresión o reorganizar las piezas de un lado. Dos pistas distintas pueden llenar el lado con piezas diferentes, por eso cada una exige su propia conversión.</p></section>
         <section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-2 text-xs uppercase tracking-widest text-brand-500">2. El medio didáctico (Brousseau)</h4>
           <p><b>Acción:</b> pruebas piezas sobre el lado, retiras, reajustas. <b>Formulación:</b> al escribir cómo traduces cada pista, explicitas tu estrategia con un lenguaje cada vez más preciso.</p>
@@ -66,7 +66,7 @@ export function InstructionsModal({ open, act, targetUnits, complete, pulseDidac
         <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500 text-white"><FlaskConical size={20} /></div><div><p className="micro">{t.kicker}</p><p className="text-base text-slate-900 font-title">{t.hook}</p></div></div>
         <p className="rounded-xl bg-slate-50 p-4">{t.story}</p>
         <div className="rounded-xl border border-brand-100 bg-brand-50 p-4"><p className="micro mb-1 !text-brand-500">{act === 'TSD3' ? 'Pistas lógicas' : act === 'TSD2' ? 'Objetivo' : 'Consigna'}</p>
-          {act === 'TSD3' ? <ul className="space-y-1">{TSD3_SIDES.map((s) => <li key={s.idx}><span className="text-brand-500">{s.name} ({s.label}):</span> {s.clue}</li>)}</ul> : <p className="text-slate-800">{t.goal.replace('{N}', String(targetUnits))}</p>}</div>
+          {act === 'TSD3' ? <ul className="space-y-0.5">{ladosDe(cfg).slice().sort((x, y) => x.label.localeCompare(y.label)).map((s) => <li key={s.idx}><span className="text-brand-500">{s.name} ({s.label}):</span> {s.clue}</li>)}</ul> : <p className="text-slate-800">{t.goal}</p>}</div>
         <div><p className="micro mb-2">Misión · pasos 1 al 4</p><ol className="space-y-2">{t.steps.map((s, i) => <li key={i} className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-500 font-title">{i + 1}</span><span>{s}</span></li>)}</ol></div>
       </div>
       <div className="mt-5 flex flex-col gap-2 sm:flex-row">
@@ -87,7 +87,7 @@ export function MessageModal({ open, act, snap, complete, onClose, onReport }: {
           <div className="space-y-3"><p className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-xs uppercase tracking-wider text-emerald-700"><Trophy size={15} />{t.success}</p>
             <p className="micro">{t.summary}</p>
             <div className="rounded-lg border border-slate-200 bg-white p-3 font-mono text-[11px] leading-relaxed text-brand-500" data-testid="encrypted">
-              {act === 'TSD3' ? TSD3_SIDES.map((s) => <div key={s.idx} className="flex justify-between border-b border-slate-100 py-0.5 last:border-0"><span className="text-slate-400">{s.label}</span><span>{s.expr} = 12</span></div>) : encryptedMessage(snap, act).map((l) => <div key={l}>{l}</div>)}
+              {act === 'TSD3' ? ladosDe(snap.config).slice().sort((x, y) => x.label.localeCompare(y.label)).map((s) => <div key={s.idx} className="flex justify-between border-b border-slate-100 py-0.5 last:border-0"><span className="text-slate-400">{s.label}</span><span>{s.expr} = {s.pattern.reduce((a, b) => a + b, 0)}</span></div>) : encryptedMessage(snap, act).map((l) => <div key={l}>{l}</div>)}
             </div></div>
         ) : (<div className="flex h-full min-h-[140px] flex-col items-center justify-center text-center"><Lock className="mb-2 text-slate-400" /><p className="text-xs uppercase tracking-wider text-slate-900">Construcción incompleta</p><p className="mt-1 text-xs text-slate-500">{t.incomplete}</p></div>)}
       </div>
@@ -105,7 +105,7 @@ export function GuideModal({ open, onClose }: { open: boolean; onClose: () => vo
         <section><h4 className="mb-2 flex items-center gap-2 text-slate-900"><Lightbulb size={16} className="text-emerald-600" />Cómo usar la aplicación</h4><div className="space-y-4">
           {step('01', 'Arrastra o haz clic', 'Arrastra una regleta del depósito a un carril, o haz clic en la regleta y luego en el carril. Un clic sobre una regleta puesta la quita.')}
           {step('02', 'Experimenta, formula y pide devoluciones', 'Experimenta es una mesa libre. Las preguntas de formulación (TSD 1) y los anclajes (TSD 2 y 3) se desbloquean al avanzar, y cada una admite hasta tres devoluciones didácticas.')}
-          {step('03', 'Análisis y reporte', 'En «Análisis del participante» ves tus 10 indicadores (IMMZ e IDCD) y descargas el «Análisis IMMZ (HTML)» que debes adjuntar a tu Diario de Campo.')}</div></section>
+          {step('03', 'Análisis y reporte', 'En «Análisis del participante» ves tus 11 indicadores (IMMZ e IDCD) y descargas el «Análisis IMMZ (HTML)» que debes adjuntar a tu Diario de Campo.')}</div></section>
         <section className="rounded-xl border border-brand-100 bg-brand-50 p-4"><h4 className="mb-1 text-brand-500">Conexión con el Diario de Campo</h4><p>Descarga el reporte <span className="font-mono text-xs">{APP_META.filenamePrefix}Nombre_ID.html</span> y adjúntalo <u>sin modificarlo</u> en tu entrada del Diario (APP «{APP_META.name}»). Ahí escribirás tu reflexión metacognitiva sobre estas mismas trazas.</p></section>
       </div>
       <div className="mt-5 text-center"><button className="btn-primary" onClick={onClose}>Entendido</button></div>
@@ -118,6 +118,22 @@ export function ConfirmModal({ open, onClose, onConfirm, title, text, label }: {
     <Modal open={open} onClose={onClose} title={title}>
       <div className="mb-4 flex gap-3 text-sm text-slate-600"><AlertTriangle className="shrink-0 text-rose-500" />{text}</div>
       <div className="flex justify-end gap-2"><button className="btn-ghost" onClick={onClose}>Cancelar</button><button className="btn-danger" data-testid="btn-confirm" onClick={() => { onConfirm(); onClose(); }}>{label}</button></div>
+    </Modal>
+  );
+}
+
+/** IM11 · «¿Crees que este carril está completo y correcto?» Se muestra con el movimiento ya registrado; cerrar sin responder no registra juicio. */
+export function JudgmentModal({ open, laneLabel, onAnswer, onClose }: { open: boolean; laneLabel: string; onAnswer: (declared: boolean) => void; onClose: () => void }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Antes de validar…">
+      <div className="mb-4 flex items-center gap-3"><span className="rounded-xl bg-brand-50 p-2 text-brand-500"><Scale size={20} /></span><p className="text-sm text-slate-600">Tu opinión sobre lo que construiste</p></div>
+      <p className="mb-5 rounded-xl bg-slate-50 p-4 text-base leading-snug text-slate-900" data-testid="judgment-lane">{laneLabel}</p>
+      <p className="mb-5 text-sm text-slate-700">¿Crees que este carril está completo y correcto?</p>
+      <div className="grid grid-cols-2 gap-3">
+        <button data-testid="judgment-yes" onClick={() => onAnswer(true)} className="flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 py-3 text-sm text-emerald-700 transition hover:bg-emerald-100"><CheckCircle2 size={16} />Sí</button>
+        <button data-testid="judgment-no" onClick={() => onAnswer(false)} className="flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-3 text-sm text-rose-700 transition hover:bg-rose-100"><XCircle size={16} />No</button>
+      </div>
+      <p className="mt-4 text-center text-[11px] text-slate-400">Tu movimiento ya quedó registrado. Responder es opcional, pero el juicio solo cuenta si respondes.</p>
     </Modal>
   );
 }
@@ -135,7 +151,7 @@ export function LockModal({ info, onClose }: { info: LockInfo | null; onClose: (
   );
 }
 
-export interface ConfigProps { open: boolean; onClose: () => void; classNumber: number | null; onClass: (c: number | null) => void; targetUnits: number; onTarget: (n: number) => void; inventoryCount: number; onInventory: (n: number) => void; showNumbers: boolean; onNumbers: (v: boolean) => void; showCounter: boolean; onCounter: (v: boolean) => void; onResetStage: () => void }
+export interface ConfigProps { open: boolean; onClose: () => void; classNumber: number | null; onClass: (c: number | null) => void; inventoryCount: number; onInventory: (n: number) => void; showNumbers: boolean; onNumbers: (v: boolean) => void; showCounter: boolean; onCounter: (v: boolean) => void; onResetStage: () => void; formId: 'A' | 'B' | 'C'; onFormId: (f: 'A' | 'B' | 'C') => void; targetUnits: number; onTargetUnits: (n: number) => void; judgmentEnabled: boolean; onJudgmentEnabled: (v: boolean) => void }
 export function ConfigModal(p: ConfigProps) {
   const [pin, setPin] = useState(''); const [ok, setOk] = useState(false); const [err, setErr] = useState(false);
   const unlock = () => { if (pin === ADMIN_DEFAULT_PIN) { setOk(true); setErr(false); } else { setErr(true); setTimeout(() => setErr(false), 1800); } };
@@ -150,10 +166,19 @@ export function ConfigModal(p: ConfigProps) {
       ) : (
         <div className="space-y-3">
           <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3"><GraduationCap className="text-emerald-600" /><div><p className="text-sm text-emerald-800 font-title">Modo educador activo</p><p className="micro !text-emerald-600">Privilegios concedidos</p></div></div>
-          <Row title="Largo de las vías del puente (TSD 2)" hint="Unidades que debe medir cada vía (5 a 9)"><select className="input !w-20" value={p.targetUnits} onChange={(e) => p.onTarget(Number(e.target.value))}>{[5, 6, 7, 8, 9].map((n) => <option key={n}>{n}</option>)}</select></Row>
           <Row title="Regletas por pieza" hint="Unidades disponibles de cada largo (1 a 10)"><input type="number" min={1} max={10} className="input !w-20" value={p.inventoryCount} onChange={(e) => p.onInventory(Number(e.target.value))} /></Row>
           <Row title="Mostrar el número al pasar el cursor" hint="Muestra el largo de cada regleta"><input type="checkbox" className="h-4 w-4 accent-[#24473A]" checked={p.showNumbers} onChange={(e) => p.onNumbers(e.target.checked)} /></Row>
           <Row title="Mostrar contador suma/meta" hint="Ayuda visible sobre cada carril"><input type="checkbox" className="h-4 w-4 accent-[#24473A]" checked={p.showCounter} onChange={(e) => p.onCounter(e.target.checked)} /></Row>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3"><label className="label" htmlFor="forma">Forma de la sesión (A / B / C)</label>
+            <select id="forma" data-testid="cfg-form" className="input" value={p.formId} onChange={(e) => p.onFormId(e.target.value as 'A' | 'B' | 'C')}>
+              {FORMAS.map((f) => <option key={f.id} value={f.id}>{f.nombre}{f.id === 'A' ? ' (contenido original)' : ''}</option>)}</select>
+            <p className="mt-1 text-[11px] text-slate-500">Las formas son tres versiones numéricas de la misma sesión de 18 carriles (10 escalones, 4 vías, 4 lados). El reporte declara <span className="font-mono">form_id</span>, <span className="font-mono">content_level</span> y <span className="font-mono">content_id</span> de la sesión.</p>
+            <p className="mt-2 text-[11px] text-amber-700">Elígela antes de que la estudiante empiece: cambiarla no mueve las piezas ya puestas.</p></div>
+          <Row title="Meta de las vías del puente (TSD 2)" hint={formaDe({ formId: p.formId }).puenteMetas ? 'Esta forma declara la meta de cada vía' : `Entre ${TARGET_MIN} y ${TARGET_MAX} unidades`}><input type="number" data-testid="cfg-target" min={TARGET_MIN} max={TARGET_MAX} disabled={!!formaDe({ formId: p.formId }).puenteMetas} className="input !w-20" value={p.targetUnits} onChange={(e) => p.onTargetUnits(Math.min(TARGET_MAX, Math.max(TARGET_MIN, Number(e.target.value) || TARGET_MIN)))} /></Row>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><Scale size={18} className="text-brand-500" /><div><p className="text-sm text-slate-900">Juicio antes de validar (IM11)</p><p className="text-xs text-slate-500">Pregunta «¿crees que este carril está completo y correcto?» cuando el carril llega a su meta.</p></div></div>
+              <button role="switch" aria-checked={p.judgmentEnabled} data-testid="cfg-judgment" onClick={() => p.onJudgmentEnabled(!p.judgmentEnabled)} className={`relative h-6 w-11 shrink-0 rounded-full transition ${p.judgmentEnabled ? 'bg-brand-500' : 'bg-slate-300'}`}><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${p.judgmentEnabled ? 'left-5' : 'left-0.5'}`} /></button></div>
+            <p className="mt-2 text-[11px] text-amber-700">Si lo apagas, IM11 queda sin evidencia. Tampoco se pregunta mientras el «ojo» (mostrar construcciones correctas) está activo, porque ya mostraría la respuesta.</p></div>
           <Row title="Reiniciar la etapa actual" hint="Vacía los carriles y Experimenta de esta TSD"><button className="btn-ghost" onClick={() => { p.onResetStage(); close(); }}>Reiniciar</button></Row>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3"><label className="label" htmlFor="cls">Clase que declara el reporte (Plan Orientador)</label>
             <select id="cls" className="input" value={p.classNumber ?? ''} onChange={(e) => p.onClass(e.target.value ? Number(e.target.value) : null)}><option value="">No declarar clase (el Diario usará la de la entrada)</option>{PLAN_CLASSES.map((c) => <option key={c.number} value={c.number}>{c.title}</option>)}</select>

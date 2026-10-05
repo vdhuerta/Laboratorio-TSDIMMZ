@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { Activity, Bookmark, Brain, ClipboardList, Eye, EyeOff, FlaskConical, HelpCircle, Lightbulb, Lock, RotateCcw, Send, Settings, BookOpen } from 'lucide-react';
 import { APP_META, APP_VERSION, BUILD_DATE, INSTITUTION } from './config';
-import { ACTIVITIES, ACTIVITY_META, LANE_COUNT, ROD_CONFIG, TSD3_TOTAL, isLaneCorrect, realTarget, rodOf, visualCapacity } from './data/lab';
+import { ACTIVITIES, ACTIVITY_META, ROD_CONFIG, isLaneCorrect, isLaneFlagged, laneCount, realTarget, rodOf, totalLanes, visualCapacity } from './data/lab';
+import { evaluateAnswer } from './data/expected';
 import type { ActivityKey, EventType, LabEvent, Snapshot, TestAreaPiece } from './labTypes';
 import { activityComplete, correctLanes, devolutionPct, stageProgress, substantive } from './lib/metrics';
 import { emptyAnchors, emptyAnswers, emptyFormulation, emptyLanes, freshSession, storage } from './lib/storage';
@@ -13,7 +14,7 @@ import Scene from './components/Scenes';
 import { laneLabel } from './lib/immzReport';
 import { DEV_TEXT, devLevels } from './data/devolutions';
 import { diagnoseSituation } from './lib/situation';
-import { ConfigModal, ConfirmModal, GuideModal, InstructionsModal, IntroModal, LockModal, MessageModal, type LockInfo } from './components/Modals';
+import { ConfigModal, ConfirmModal, GuideModal, InstructionsModal, IntroModal, JudgmentModal, LockModal, MessageModal, type LockInfo } from './components/Modals';
 import { Modal, Tip } from './components/ui';
 import AnalysisView from './views/AnalysisView';
 
@@ -42,7 +43,11 @@ export default function App() {
   const init = useMemo(() => storage.session(), []);
   const [activeActivity, setActive] = useState<ActivityKey>(init.activeActivity);
   const [showIntro, setShowIntro] = useState(init.showIntro);
+  const [formId, setFormId] = useState(init.formId);
   const [targetUnits, setTargetUnits] = useState(init.targetUnits);
+  const [judgmentEnabled, setJudgmentEnabled] = useState(init.judgmentEnabled);
+  /* IM11: carril que acaba de llegar a su meta y espera el juicio de la estudiante */
+  const [pendingJudgment, setPendingJudgment] = useState<{ act: ActivityKey; idx: number; real: boolean } | null>(null);
   const [inventoryCount, setInventoryCount] = useState(init.inventoryCount);
   const [lanes, setLanes] = useState(init.lanes);
   const [testArea, setTestArea] = useState(init.testArea);
@@ -71,7 +76,7 @@ export default function App() {
   const [showNumbers, setShowNumbers] = useState(false);
   const [showCounter, setShowCounter] = useState(false);
 
-  const cfg = useMemo(() => ({ targetUnits }), [targetUnits]);
+  const cfg = useMemo(() => ({ formId, targetUnits, judgmentEnabled }), [formId, targetUnits, judgmentEnabled]);
   const snap: Snapshot = useMemo(() => ({ history, lanes, answers, formulationStates, anchorStates, config: cfg }), [history, lanes, answers, formulationStates, anchorStates, cfg]);
   const act = activeActivity;
   const actLanes = lanes[act];
@@ -83,8 +88,8 @@ export default function App() {
   const openInstructions = () => { setShowInstructions(true); log('instructions_open', act, { payload: { complete, prompted: prompt } }); };
 
   /* ───────── persistencia ───────── */
-  useEffect(() => { storage.saveSession({ activeActivity, showIntro, targetUnits, inventoryCount, lanes, testArea, answers, formulationStates, anchorStates, history }); },
-    [activeActivity, showIntro, targetUnits, inventoryCount, lanes, testArea, answers, formulationStates, anchorStates, history]);
+  useEffect(() => { storage.saveSession({ activeActivity, showIntro, formId, targetUnits, judgmentEnabled, inventoryCount, lanes, testArea, answers, formulationStates, anchorStates, history }); },
+    [activeActivity, showIntro, formId, targetUnits, judgmentEnabled, inventoryCount, lanes, testArea, answers, formulationStates, anchorStates, history]);
   useEffect(() => storage.saveName(name), [name]);
   useEffect(() => storage.saveClassNumber(classNumber), [classNumber]);
 
@@ -111,7 +116,7 @@ export default function App() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lanes, targetUnits]);
+  }, [lanes, formId, targetUnits]);
 
   /* ───────── colocar y quitar regletas ───────── */
   const place = (idx: number, length: number, fromTestId?: string): boolean => {
@@ -119,15 +124,21 @@ export default function App() {
     if (!fromTestId && (inventory[length] ?? 0) <= 0) return false;
     if (act === 'TSD3' && lane.length >= 10) return false;
     const cap = visualCapacity(act, idx, cfg), target = realTarget(act, idx, cfg);
-    const isOverflow = sum + length > target, rejected = sum + length > cap;
+    /* TSD 1 (correspondencia biunívoca): el escalón se completa con UNA sola regleta; una segunda se rechaza */
+    const isOverflow = sum + length > target, rejected = act === 'TSD1' ? lane.length >= 1 : sum + length > cap;
     const base = { laneIndex: idx, rodLength: length };
-    if (rejected) { log('place', act, { ...base, payload: { fits: false, isOverflow: true, isWrong: false, rejected: true, sumBefore: sum, target } }); return false; }
+    if (rejected) { log('place', act, { ...base, payload: { fits: false, isOverflow: true, isWrong: false, rejected: true, closes: false, sumBefore: sum, target } }); return false; }
     const rod = { id: uid(), length, color: rodOf(length)!.color, code: rodOf(length)!.code };
     const newLens = [...lane.map((r) => r.length), length];
-    const isWrong = act === 'TSD3' && sum + length >= TSD3_TOTAL && !isLaneCorrect(act, idx, newLens, cfg);
+    /* «cierra» el carril = es la entrega de la estudiante: en TSD 1 toda regleta (el escalón admite una sola); en las demás, la pieza que lo lleva a su meta o más allá */
+    const closes = act === 'TSD1' ? true : sum < target && sum + length >= target;
+    const isWrong = act === 'TSD1' ? !isLaneCorrect(act, idx, newLens, cfg) : act === 'TSD3' && sum + length >= target && !isLaneCorrect(act, idx, newLens, cfg);
     setLanes((p) => ({ ...p, [act]: p[act].map((l, i) => (i === idx ? [...l, rod] : l)) }));
-    log('place', act, { ...base, payload: { fits: !isOverflow, isOverflow, isWrong, rejected: false, sumBefore: sum, target } });
+    log('place', act, { ...base, payload: { fits: !isOverflow, isOverflow, isWrong, rejected: false, closes, sumBefore: sum, target } });
     if (isLaneCorrect(act, idx, newLens, cfg)) log('validation_success', act, { laneIndex: idx });
+    /* IM11: el carril acaba de llegar a su meta (o más allá) → antes de seguir, la estudiante declara si cree que está completo y correcto.
+       No se pregunta con el «ojo» activo (ya mostraría la respuesta) ni si el docente apagó el juicio. */
+    if (judgmentEnabled && !reveal && closes) setPendingJudgment({ act, idx, real: isLaneCorrect(act, idx, newLens, cfg) });
     return true;
   };
   const removeRod = (idx: number, rodId: string, length: number) => {
@@ -135,7 +146,7 @@ export default function App() {
     const wasIncorrect = sum > realTarget(act, idx, cfg) || !isLaneCorrect(act, idx, lens, cfg);
     const i = lens.indexOf(length); const after = lane.filter((r) => r.id !== rodId).map((r) => r.length);
     setLanes((p) => ({ ...p, [act]: p[act].map((l, k) => (k === idx ? l.filter((r) => r.id !== rodId) : l)) }));
-    log('remove', act, { laneIndex: idx, rodLength: length, payload: { wasIncorrect, sumBefore: sum } });
+    log('remove', act, { laneIndex: idx, rodLength: length, payload: { wasIncorrect, wasCorrect: !wasIncorrect, wasFlagged: isLaneFlagged(act, idx, lens, cfg), afterFlagged: isLaneFlagged(act, idx, after, cfg), sumBefore: sum } });
     if (i >= 0 && !isLaneCorrect(act, idx, lens, cfg) && isLaneCorrect(act, idx, after, cfg)) log('validation_success', act, { laneIndex: idx });
   };
 
@@ -182,7 +193,9 @@ export default function App() {
     const bridge = key === 'tsd2Bridge' || key === 'tsd3Bridge';
     const a: ActivityKey = key === 'tsd2Bridge' ? 'TSD2' : key === 'tsd3Bridge' ? 'TSD3' : 'TSD1';
     const qid = bridge ? undefined : Number(key.slice(1)); const revision = prev.trim().length > 0;
-    log('question_answer', a, { questionId: qid, payload: { bridge, empty: text.trim() === '', chars: text.trim().length, isRevision: revision } });
+    /* IM10: la respuesta se marca correcta/incorrecta contra sus términos clave (src/data/expected.ts); caracteres y palabras son solo descriptivos */
+    const ev = evaluateAnswer(key, text);
+    log('question_answer', a, { questionId: qid, payload: { bridge, key, empty: text.trim() === '', chars: ev.caracteres, words: ev.palabras, correcta: ev.correcta, groups_touched: ev.tocados, groups_missing: ev.noTocados, groups_min: ev.minimo, terms_hit: ev.terminos, isRevision: revision } });
     if (revision) log('answer_revision', a, { questionId: qid, payload: { bridge } });
     lastLogged.current[key] = text;
     if (bridge) setAnchorStates((p) => ({ ...p, [a]: { ...p[a as 'TSD2' | 'TSD3'], revisionsCount: p[a as 'TSD2' | 'TSD3'].revisionsCount + (revision ? 1 : 0) } }));
@@ -215,9 +228,14 @@ export default function App() {
     const sit = diagnoseSituation(snap, act); const lv = Math.min(3, (devLevels(history)[sit.key] ?? 0) + 1); if (lv === (devLevels(history)[sit.key] ?? 0)) return;
     log('devolution_request', act, { laneIndex: sit.laneIndex, devolutionLevel: lv, payload: { scope: 'construction', case: sit.case, key: sit.key, lane: sit.laneIndex ?? null, correctLanes: correctLanes(snap, act), anchor: false } });
   };
+  /* IM3/IM4: la devolución cuenta cuando la estudiante ABRE el panel (no cuando retira una pieza). Sin carril asociado no es una devolución de unidad. */
+  const openDevolution = () => {
+    setShowDev(true);
+    log('devolution_open', act, { laneIndex: situation.laneIndex, payload: { scope: 'construction', case: situation.case, key: situation.key, lane: situation.laneIndex ?? null } });
+  };
   const openFormulation = () => {
     setShowFormulation(true); log('formulation_panel_open', 'TSD1');
-    if (correctLanes(snap, 'TSD1') >= 5) log('question_open', 'TSD1', { questionId: 1 });
+    if (correctLanes(snap, 'TSD1') >= Math.ceil(laneCount('TSD1', cfg) / 2)) log('question_open', 'TSD1', { questionId: 1 });
   };
   const openAnchor = () => { if (act === 'TSD1') return; setShowAnchor(true); log('anchor_open', act); };
 
@@ -275,13 +293,13 @@ export default function App() {
     {navBtn('analysis', short ? 'Análisis' : 'Análisis del participante', view === 'analysis', () => { flushAll(); setView('analysis'); }, <Activity size={13} />, 'tab-analysis')}
   </>);
   const devolution = devolutionPct(snap);
-  const totalProg = Math.round((correctLanes(snap) / (LANE_COUNT.TSD1 + LANE_COUNT.TSD2 + LANE_COUNT.TSD3)) * 100);
+  const totalProg = Math.round((correctLanes(snap) / totalLanes(cfg)) * 100);
   const activeRod = dragging ? rodOf(dragging) : null;
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-chrome-bg">
       <IntroModal open={showIntro} onStart={() => { setShowIntro(false); setShowInstructions(true); }} />
-      <InstructionsModal open={showInstructions && !showIntro} act={act} targetUnits={targetUnits} complete={complete} pulseDidactic={prompt}
+      <InstructionsModal open={showInstructions && !showIntro} act={act} cfg={cfg} complete={complete} pulseDidactic={prompt}
         onClose={() => setShowInstructions(false)}
         onDidacticOpen={() => { didacticOpenedAt.current = Date.now(); log('didactic_view', act, { payload: { phase: 'open' } }); }}
         onDidacticClose={() => { const t0 = didacticOpenedAt.current; didacticOpenedAt.current = null; log('didactic_close', act, { payload: { seconds: t0 ? Math.round((Date.now() - t0) / 1000) : 0 } }); }} />
@@ -292,18 +310,23 @@ export default function App() {
       <LockModal info={lock} onClose={() => setLock(null)} />
       <ConfirmModal open={confirm === 'all'} onClose={() => setConfirm(null)} onConfirm={resetAll} title="¿Reiniciar toda la aplicación?" label="Reiniciar todo"
         text="Esta acción vacía las tres construcciones, borra tus respuestas, devoluciones e historial de acciones. No se puede deshacer. Si aún no descargas tu reporte, hazlo antes." />
-      <ConfigModal open={showConfig} onClose={() => setShowConfig(false)} classNumber={classNumber} onClass={setClassNumber} targetUnits={targetUnits}
-        onTarget={(n) => { setTargetUnits(n); log('config_change', 'TSD2', { payload: { setting: 'targetUnits', value: n } }); }} inventoryCount={inventoryCount}
+      <ConfigModal open={showConfig} onClose={() => setShowConfig(false)} classNumber={classNumber} onClass={setClassNumber}
+        inventoryCount={inventoryCount}
         onInventory={(n) => { const v = Math.max(1, Math.min(10, n || 1)); setInventoryCount(v); log('config_change', act, { payload: { setting: 'inventoryCountPerPiece', value: v } }); }}
-        showNumbers={showNumbers} onNumbers={setShowNumbers} showCounter={showCounter} onCounter={setShowCounter} onResetStage={resetStage} />
+        showNumbers={showNumbers} onNumbers={setShowNumbers} showCounter={showCounter} onCounter={setShowCounter} onResetStage={resetStage}
+        formId={formId} onFormId={(f) => { setFormId(f); setPendingJudgment(null); log('config_change', act, { payload: { setting: 'formId', value: f } }); }}
+        targetUnits={targetUnits} onTargetUnits={(n) => { setTargetUnits(n); log('config_change', 'TSD2', { payload: { setting: 'targetUnits', value: n } }); }}
+        judgmentEnabled={judgmentEnabled} onJudgmentEnabled={(v) => { setJudgmentEnabled(v); if (!v) setPendingJudgment(null); log('config_change', act, { payload: { setting: 'judgmentEnabled', value: v } }); }} />
+      <JudgmentModal open={pendingJudgment !== null} laneLabel={pendingJudgment ? laneLabel(pendingJudgment.act, pendingJudgment.idx, cfg) : ''} onClose={() => setPendingJudgment(null)}
+        onAnswer={(declared) => { const j = pendingJudgment; setPendingJudgment(null); if (j) log('judgment', j.act, { laneIndex: j.idx, payload: { declared, real: j.real } }); }} />
       <Modal open={showDev} onClose={() => setShowDev(false)} size="lg" title="Devolución didáctica">
-        <ConstructionDevolution stageName={ACTIVITY_META[act].short} situationLabel={situation.laneIndex !== undefined ? laneLabel(act, situation.laneIndex) : 'Tu construcción completa'}
-          texts={DEV_TEXT[act][situation.case].map((t) => t.replace('{lane}', situation.laneIndex !== undefined ? laneLabel(act, situation.laneIndex) : 'carril'))} level={devLv} onRequest={requestConstruction}
+        <ConstructionDevolution stageName={ACTIVITY_META[act].short} situationLabel={situation.laneIndex !== undefined ? laneLabel(act, situation.laneIndex, cfg) : 'Tu construcción completa'}
+          texts={DEV_TEXT[act][situation.case].map((t) => t.replace('{lane}', situation.laneIndex !== undefined ? laneLabel(act, situation.laneIndex, cfg) : 'carril'))} level={devLv} onRequest={requestConstruction}
           onOpenTesting={() => { setShowDev(false); setShowTesting(true); log('test_area_open', act, { payload: { open: true } }); }}
           onOpenFormulation={situation.case === 'completa' ? () => { setShowDev(false); if (act === 'TSD1') openFormulation(); else openAnchor(); } : undefined} />
       </Modal>
       <Modal open={showFormulation} onClose={() => { flushAll(); setShowFormulation(false); }} size="3xl" title="Formulación">
-        <FormulationPanel correctLanes={correctLanes(snap, 'TSD1')} answers={answers} states={formulationStates} onAnswer={(q, t) => setAnswer(`q${q}` as AnswerKey, t)} onFlush={flushAll}
+        <FormulationPanel correctLanes={correctLanes(snap, 'TSD1')} totalLanes={laneCount('TSD1', cfg)} answers={answers} states={formulationStates} onAnswer={(q, t) => setAnswer(`q${q}` as AnswerKey, t)} onFlush={flushAll}
           onRequest={requestFormulation} onOpenQuestion={(q) => log('question_open', 'TSD1', { questionId: q })} onOpenTesting={() => { flushAll(); setShowFormulation(false); setShowTesting(true); log('test_area_open', act, { payload: { open: true } }); }} />
       </Modal>
       <Modal open={showAnchor && act !== 'TSD1'} onClose={() => { flushAll(); setShowAnchor(false); }} size="3xl" title="Anclaje">
@@ -347,7 +370,7 @@ export default function App() {
                   <div className="flex flex-wrap gap-2">
                     <button className={`btn-ghost ${prompt ? 'pulse-ok' : ''}`} onClick={openInstructions} data-testid="btn-instructions" data-prompt={prompt ? '1' : '0'}><BookOpen size={14} />Instrucciones</button>
                     <button className={`btn-ghost ${showTesting ? '!border-accent/60 !bg-accent-soft' : ''}`} onClick={() => toggleTesting(!showTesting)} data-testid="btn-experimenta"><FlaskConical size={14} />Experimenta</button>
-                    <button className="btn-primary !bg-accent hover:!bg-amber-600" onClick={() => setShowDev(true)} data-testid="btn-devolution-construction"><Lightbulb size={14} />Devolución</button>
+                    <button className="btn-primary !bg-accent hover:!bg-amber-600" onClick={openDevolution} data-testid="btn-devolution-construction"><Lightbulb size={14} />Devolución</button>
                     <button className="btn-ghost" onClick={() => { setShowMessage(true); log('message_view', act, { payload: { complete } }); }} data-testid="btn-message"><Send size={14} />Mensaje</button>
                     {act === 'TSD1' ? <button className="btn-primary" onClick={openFormulation} data-testid="btn-formulation"><Brain size={14} />Formulación</button> : <button className="btn-primary" onClick={openAnchor} data-testid="btn-anchor"><Bookmark size={14} />Anclaje</button>}
                   </div>
@@ -368,7 +391,7 @@ export default function App() {
                 <div className="flex items-center gap-2 border-b border-slate-200 pb-2"><ClipboardList size={16} className="text-brand-500" /><h3 className="text-xs uppercase tracking-widest text-slate-900">Hoja de ruta</h3></div>
                 <nav className="space-y-5">{ACTIVITIES.map((a, i) => { const done = reveal && activityComplete(snap, a); return (
                   <div key={a} className={`relative pl-8 ${done || a === act ? '' : 'opacity-50'}`}><div className={`absolute left-0 top-0 flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-title ${done ? 'bg-brand-500 text-white' : 'border border-slate-300 bg-white text-slate-400'}`}>{i + 1}</div>
-                    {i < 2 && <div className="absolute left-3 top-7 h-9 w-px bg-slate-200" />}<h4 className="mb-0.5 text-xs text-slate-900">{ACTIVITY_META[a].short}</h4><p className="text-[10px] leading-relaxed text-slate-500">{ACTIVITY_META[a].scene}{reveal ? ` · ${correctLanes(snap, a)}/${LANE_COUNT[a]} correctos` : ''}</p></div>); })}</nav>
+                    {i < 2 && <div className="absolute left-3 top-7 h-9 w-px bg-slate-200" />}<h4 className="mb-0.5 text-xs text-slate-900">{ACTIVITY_META[a].short}</h4><p className="text-[10px] leading-relaxed text-slate-500">{ACTIVITY_META[a].scene}{reveal ? ` · ${correctLanes(snap, a)}/${laneCount(a, cfg)} correctos` : ''}</p></div>); })}</nav>
                 <div className="mt-auto rounded-xl border border-slate-200 bg-white p-4"><p className="micro mb-1">Base teórica</p><p className="text-[11px] italic text-slate-600">«El alumno aprende adaptándose a un medio que es factor de contradicciones, de dificultades, de desequilibrios.» — Brousseau</p></div>
               </aside>
               <DragOverlay dropAnimation={null}>{activeRod ? <RodBar length={activeRod.length} className="rotate-2 shadow-xl ring-2 ring-brand-400" /> : null}</DragOverlay>
