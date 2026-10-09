@@ -1,14 +1,14 @@
 import type { CanonicalIndicatorDef } from './types';
 
-/** Identidad de esta app dentro del Diario de Campo (DEFAULT_APP_CONFIGS.simulador_tsd). */
+/** Identidad de esta app dentro del Diario de Campo (DEFAULT_APP_CONFIGS.laboratorio_tsd). */
 export const APP_META = {
-  id: 'simulador_tsd',
-  name: 'Simulador TSD',
-  scenarioName: 'El Almacén de Monedas',
-  defaultClassNumber: 1,
-  filenamePrefix: 'Reporte_TSD_',
+  id: 'laboratorio_tsd',
+  name: 'Laboratorio TSD',
+  scenarioName: 'Puente del Castillo',
+  defaultClassNumber: 9,
+  filenamePrefix: 'Reporte_LabTSD_',
 } as const;
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.2.0';
 declare const __BUILD_DATE__: string;
 export const BUILD_DATE = typeof __BUILD_DATE__ !== 'undefined' ? __BUILD_DATE__ : 'dev';
 export const ADMIN_DEFAULT_PIN = '4132';
@@ -16,13 +16,9 @@ export const ADMIN_DEFAULT_PIN = '4132';
 export const INSTITUTION = 'Escuela de Educación Parvularia · UVM';
 
 /**
- * Matriz canónica IM1–IM10: COPIA EXACTA de config.ts del Diario de Campo. No modificar esos 10
- * sin actualizar el Diario. IM11 es la extensión del motor 4.1 (calibración del juicio
- * metacognitivo, ver src/immz-core/): el Diario de hoy no lo conoce y lo ignora al leer el
- * reporte, así que vive aquí pero se excluye del bloque de compatibilidad 4.0 del payload
- * (ver computeCompatIndices() en src/lib/immzReport.ts).
- * `weight` no se usa en ningún cálculo: scoring.ts promedia simple (ver meanOf). Se mantiene
- * en cada indicador solo para conservar la forma exacta de CanonicalIndicatorDef del Diario.
+ * Matriz canónica IM1–IM10: COPIA EXACTA de config.ts del Diario de Campo. No modificar esos 10 sin actualizar el Diario.
+ * IM11 es la extensión del motor 4.1 (calibración del juicio, ver src/immz-core/): el Diario de hoy no la conoce,
+ * así que se muestra aquí pero se excluye del bloque de compatibilidad 4.0 del payload (ver immzReport.ts).
  */
 export const INDICATORS: CanonicalIndicatorDef[] = [
   { id: 'IM1', dimension: 'A', sub: 'AO', label: 'Vigilancia cognitiva sostenida', description: 'Constancia en el seguimiento del problema.', weight: 0.5, aliases: ['vigilancia', 'vigilancia_cognitiva', 'sustained_monitoring'] },

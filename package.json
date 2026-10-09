@@ -1,5 +1,5 @@
 {
-  "name": "simulador-tsd-immz",
+  "name": "laboratorio-tsd-immz",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "build:single": "vite build --config vite.artifact.config.ts",
     "preview": "vite preview",
-    "verify": "tsx scripts/verify-immz.ts",
-    "verify:calc": "tsx scripts/verify-calc.ts"
+    "verify": "tsx scripts/verify-immz.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

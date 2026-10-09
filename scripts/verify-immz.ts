@@ -1,6 +1,6 @@
 /**
  * Verifica que un reporte generado por la app se lea EXACTAMENTE igual en el Diario de Campo.
- * Uso: DIARIO_SRC=/ruta/diario-campo/src npx tsx scripts/verify-immz.ts <Reporte_TSD_*.html>
+ * Uso: DIARIO_SRC=/ruta/diario-campo/src npx tsx scripts/verify-immz.ts <Reporte_LabTSD_*.html>
  * Ejecuta el parser, el auditor (R1–R11) y el narrador IMMZ ORIGINALES del Diario.
  */
 import fs from 'fs';
@@ -23,7 +23,7 @@ console.log('Lectura con el parser del Diario →', { simulator: parsed.simulato
 console.log('Avisos del parser:', parsed.warnings);
 console.log('\n[1] Parser');
 ok(parsed.sourceVersion === '4.0', 'esquema 4.0 detectado (sin re-mapeo)');
-ok(parsed.simulator === 'Simulador TSD', 'APP resuelta = Simulador TSD');
+ok(parsed.simulator === 'Laboratorio TSD', 'APP resuelta = Laboratorio TSD');
 ok(parsed.classNumber === payload.class_number, 'clase leída = clase del payload');
 ok(parsed.studentName === payload.participant_name && !!parsed.studentName, 'nombre del participante leído');
 ok(!parsed.warnings.some((w: string) => /re-mapeados|nombre \(sin código|rescatados|no contiene/.test(w)), 'sin avisos de re-mapeo / rescate / HTML heredado');
@@ -36,13 +36,13 @@ for (const [k, pk] of [['immz', 'immz'], ['immzAO', 'immz_ao'], ['immzAC', 'immz
 ok(parsed.apropiacion === payload.apropiacion && parsed.aciertos === payload.aciertos && parsed.errores === payload.errores && parsed.reflexiones === payload.reflexiones, 'métricas del simulador (apropiación/aciertos/errores/reflexiones)');
 
 console.log('\n[2] Auditor (R1–R11) con la configuración por defecto del Diario');
-const good = auditEntry({ classNumber: 1, used_app: 'Simulador TSD', appReport: { name, type: 'text/html', data: '' }, appReportParsed: parsed }, DEFAULT_APP_CONFIGS);
-ok(good.clean, `Clase 1 + Simulador TSD + este archivo → sin discrepancias ${good.clean ? '' : JSON.stringify(good.discrepancies.map((d: any) => d.rule))}`);
-const bad = auditEntry({ classNumber: 2, used_app: 'Simulador TSD', appReport: { name, type: 'text/html', data: '' }, appReportParsed: parsed }, DEFAULT_APP_CONFIGS);
+const good = auditEntry({ classNumber: 9, used_app: 'Laboratorio TSD', appReport: { name, type: 'text/html', data: '' }, appReportParsed: parsed }, DEFAULT_APP_CONFIGS);
+ok(good.clean, `Clase 9 + Laboratorio TSD + este archivo → sin discrepancias ${good.clean ? '' : JSON.stringify(good.discrepancies.map((d: any) => d.rule))}`);
+const bad = auditEntry({ classNumber: 2, used_app: 'Laboratorio TSD', appReport: { name, type: 'text/html', data: '' }, appReportParsed: parsed }, DEFAULT_APP_CONFIGS);
 ok(bad.discrepancies.some((d: any) => d.rule === 'R2') && bad.discrepancies.some((d: any) => d.rule === 'R11'), 'en otra clase el auditor detecta R2 y R11 (el reporte sí declara su clase)');
 
 console.log('\n[3] Narrador IMMZ del Diario');
-const n = narrateImmz([{ id: 'x', date: '2026-09-26', title: 't', reflection: 'r', skills: '', deontology: '', dimensions: '', tags: [], competencies: [], linkedGoals: [], classNumber: 1, appReportParsed: parsed } as any]);
+const n = narrateImmz([{ id: 'x', date: '2026-09-26', title: 't', reflection: 'r', skills: '', deontology: '', dimensions: '', tags: [], competencies: [], linkedGoals: [], classNumber: 9, appReportParsed: parsed } as any]);
 ok(!!n && n.n === 1, `narrateImmz usa el reporte: «${n?.headline.slice(0, 90)}…»`);
 console.log(fail ? `\n✗ ${fail} verificación(es) fallaron` : '\n✓ El reporte calza al 100 % con el Diario de Campo');
 process.exit(fail ? 1 : 0);

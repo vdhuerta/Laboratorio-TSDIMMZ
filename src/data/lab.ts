@@ -72,15 +72,21 @@ export interface Forma {
   /** TSD 3: los cuatro lados, perímetro 12, con el mismo perfil de registros en todas las formas (L1 multiplicativo «k veces m», L2 algebraico «an+b», L3 duplicación «doble de X más Y» = {X, X, Y}, L4 comparación aditiva «dos números que se diferencian en d» = {a, a+d}). */
   cerca: LadoCerca[];
 }
-const escalera = (metas: number[]): Escalon[] => metas.map((meta, i) => ({ id: `E${metas.length - i}`, rotulo: metas.length - i, meta }));
+/** `metasPorEscalon[k-1]` = meta del Escalón k. El Escalón 1 es el de ABAJO (la escalera se construye de abajo hacia arriba), así que el carril 0 (arriba) es el último
+ *  escalón. La meta se declara por escalón (no se deriva del índice del carril). */
+const escalera = (metasPorEscalon: number[]): Escalon[] => metasPorEscalon.map((_, i) => { const rotulo = metasPorEscalon.length - i; return { id: `E${rotulo}`, rotulo, meta: metasPorEscalon[rotulo - 1] }; });
 /** Orden de los lados: L1→L4; `idx` es el carril interno (L1=3, L2=0, L3=1, L4=2, como en la app original). */
 export const PERFIL_REGISTROS: RegistroCerca[] = ['natural_multiplicativo', 'algebraico', 'natural_duplicacion', 'comparacion_aditiva'];
+
+/** Escalera de TSD1, IGUAL en las tres formas (no hay otra forma de armarla): de abajo hacia arriba, de la regleta más grande a la más pequeña.
+ *  Escalón 1 (abajo) = regleta 10 … Escalón 10 (arriba) = regleta 1. Las formas A, B y C varían en el puente (TSD2) y la cerca (TSD3). */
+const ESCALERA_UNICA: Escalon[] = escalera([10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
 
 /** FORMA A. Las formas se agregan a `FORMAS` solo cuando su contenido didáctico está validado. */
 const FORMA_A: Forma = {
   id: 'A', nombre: 'Forma A', contentLevel: 1, contentId: 'lab-tsd-A',
-  escalera: escalera([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
-  puenteMetas: null,
+  escalera: ESCALERA_UNICA,
+  puenteMetas: [5, 5, 5, 5],
   cerca: [
     { idx: 3, label: 'L1', name: 'Lado 1', registro: 'natural_multiplicativo', clue: '2 veces 6', expr: '6 + 6', pattern: [6, 6] },
     { idx: 0, label: 'L2', name: 'Lado 2', registro: 'algebraico', clue: '3n+3', expr: '3 + 3 + 3 + 3', pattern: [3, 3, 3, 3] },
@@ -90,12 +96,12 @@ const FORMA_A: Forma = {
 };
 /**
  * FORMA B: mismo perfil, otro orden de metas / otra distribución de vías / otras pistas. Contenido validado por el investigador.
- * La FORMA C está PENDIENTE: el patrón propuesto para sus lados exigía 7 regletas de 3 en una misma cerca (el inventario es de 4).
+ * FORMA C: las pistas originales exigían 7 regletas de 3 en una misma cerca (inventario 4); se ajustaron L2 «2n» [6,6], L3 «doble de 5 más 2» y L4 con diferencia de 8 (aprobado por la autora).
  */
 const FORMA_B: Forma = {
   id: 'B', nombre: 'Forma B', contentLevel: 1, contentId: 'lab-tsd-B',
-  escalera: escalera([4, 9, 2, 7, 10, 1, 6, 3, 8, 5]),
-  puenteMetas: [5, 7, 5, 7],
+  escalera: ESCALERA_UNICA,
+  puenteMetas: [6, 6, 6, 6],
   cerca: [
     { idx: 3, label: 'L1', name: 'Lado 1', registro: 'natural_multiplicativo', clue: '3 veces 4', expr: '4 + 4 + 4', pattern: [4, 4, 4] },
     { idx: 0, label: 'L2', name: 'Lado 2', registro: 'algebraico', clue: '2n+2', expr: '2 + 5 + 5', pattern: [2, 5, 5] },
@@ -103,7 +109,18 @@ const FORMA_B: Forma = {
     { idx: 2, label: 'L4', name: 'Lado 4', registro: 'comparacion_aditiva', clue: 'dos números que se diferencian en 4', expr: '4 + 8', pattern: [4, 8] },
   ],
 };
-export const FORMAS: Forma[] = [FORMA_A, FORMA_B];
+const FORMA_C: Forma = {
+  id: 'C', nombre: 'Forma C', contentLevel: 1, contentId: 'lab-tsd-C',
+  escalera: ESCALERA_UNICA,
+  puenteMetas: [7, 7, 7, 7],
+  cerca: [
+    { idx: 3, label: 'L1', name: 'Lado 1', registro: 'natural_multiplicativo', clue: '4 veces 3', expr: '3 + 3 + 3 + 3', pattern: [3, 3, 3, 3] },
+    { idx: 0, label: 'L2', name: 'Lado 2', registro: 'algebraico', clue: '2n', expr: '6 + 6', pattern: [6, 6] },
+    { idx: 1, label: 'L3', name: 'Lado 3', registro: 'natural_duplicacion', clue: 'doble de 5 más 2', expr: '5 + 5 + 2', pattern: [5, 5, 2], equivalentes: [[10, 2]] },
+    { idx: 2, label: 'L4', name: 'Lado 4', registro: 'comparacion_aditiva', clue: 'dos números que se diferencian en 8', expr: '2 + 10', pattern: [2, 10] },
+  ],
+};
+export const FORMAS: Forma[] = [FORMA_A, FORMA_B, FORMA_C];
 export const DEFAULT_FORM: FormaId = 'A';
 export const FORMA_IDS = FORMAS.map((f) => f.id);
 export const formaDe = (cfg: Pick<LabConfig, 'formId'>): Forma => FORMAS.find((f) => f.id === cfg.formId) ?? FORMAS[0];

@@ -44,7 +44,7 @@ export interface AnchorState { devolutionLevel: number; revisionsCount: number; 
 
 export type LanesByActivity = Record<ActivityKey, RodInstance[][]>;
 /** `formId` = forma de la sesión (A/B/C); `targetUnits` = meta de las vías del puente en la forma A (5 a 7). */
-export interface LabConfig { formId: 'A' | 'B' | 'C'; targetUnits: number; judgmentEnabled: boolean }
+export interface LabConfig { formId: 'A' | 'B' | 'C'; targetUnits: number; judgmentEnabled: boolean; /** NRC del curso (identificación inicial, 3 a 6 dígitos). */ nrc?: string | null }
 
 /** Todo lo que el motor de indicadores necesita para calcular (y lo que el reporte vuelca como traza). */
 export interface Snapshot {

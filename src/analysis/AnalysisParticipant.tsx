@@ -110,6 +110,7 @@ export function DimASection({ m }: { m: AnalysisModel }) {
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">{m.indicators.filter((i) => i.subdimension === 'AO').map((i) => <IndicatorCard key={i.code} ind={i} />)}</div></div>
       <div className="space-y-4 border-t border-slate-100 pt-5"><SubHeader code="A2" title="Autocontrol" blurb="Estrategias de autorregulación activa durante la tarea: detección y autocorrección de errores, retroalimentación y resiliencia." label="IMMZ-AC" value={m.immzAC} />
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">{m.indicators.filter((i) => i.subdimension === 'AC').map((i) => <IndicatorCard key={i.code} ind={i} />)}</div></div>
+      <p data-testid="nota-im11" className="border-t border-slate-100 pt-3 text-[11px] italic text-slate-500">IM11 pertenece al bloque 4.1 del esquema; mientras el Diario de Campo no se actualice, calcula los índices sin él, por lo que sus valores pueden diferir de los de esta pantalla.</p>
     </div>
   );
 }

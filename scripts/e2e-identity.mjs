@@ -1,0 +1,26 @@
+/* Reinicio de la app: vuelve a pedir NRC y forma (sin preselección) y el rótulo «NRC · Forma» cuelga bajo el título. Uso: node scripts/e2e-identity.mjs */
+import { chromium } from 'playwright-core';
+const exe = process.env.CHROME_BIN || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const b = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
+const p = await (await b.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+const errs = []; p.on('pageerror', (e) => errs.push(String(e)));
+await p.goto(process.env.URL || 'http://localhost:4173');
+await p.waitForSelector('[data-testid="id-nrc"]'); await p.fill('[data-testid="id-nrc"]', '4321'); await p.selectOption('[data-testid="id-form"]', 'B'); await p.click('[data-testid="id-submit"]');
+await p.waitForSelector('[data-testid="btn-start"]'); await p.click('[data-testid="btn-start"]'); await p.waitForTimeout(3300); await p.click('[data-testid="btn-close-instructions"]'); await p.waitForTimeout(200);
+const r = {};
+const h1 = await p.locator('header h1').boundingBox(); const chip = await p.locator('[data-testid="id-chip-bar"]').boundingBox();
+r.chipText = await p.locator('[data-testid="id-chip-bar"]').textContent();
+r.chipBajoTitulo = !!(h1 && chip && chip.y >= h1.y + h1.height - 2 && Math.abs(chip.x - h1.x) < 4);
+r.chipEnHeaderDerecha = (await p.locator('header > div:last-child [data-testid="id-chip-bar"]').count()) === 0;
+await p.screenshot({ path: '/tmp/e2e-lab/id-header.png', clip: { x: 0, y: 0, width: 900, height: 70 } });
+await p.click('[data-testid="btn-reset"]'); await p.getByRole('button', { name: 'Reiniciar todo' }).click(); await p.waitForTimeout(400);
+r.modalVuelve = (await p.locator('[data-testid="identity-modal"]').count()) === 1;
+r.nrcVacio = (await p.locator('[data-testid="id-nrc"]').inputValue()) === '';
+r.formaSinPreseleccion = (await p.locator('[data-testid="id-form"]').inputValue()) === '';
+r.introOculta = (await p.locator('[data-testid="btn-start"]').count()) === 0;
+r.storageVacio = await p.evaluate(() => [localStorage.getItem('lab_nrc'), localStorage.getItem('lab_form_id'), localStorage.getItem('lab_form_set')]);
+r.chipOculto = (await p.locator('[data-testid="id-chip-bar"]').count()) === 0;
+await p.reload(); await p.waitForSelector('[data-testid="id-nrc"]'); r.trasRecargaPideDeNuevo = true;
+await p.fill('[data-testid="id-nrc"]', '999'); await p.selectOption('[data-testid="id-form"]', 'C'); await p.click('[data-testid="id-submit"]'); await p.waitForSelector('[data-testid="btn-start"]');
+r.nuevaIdentidad = await p.locator('[data-testid="id-chip"]').textContent(); r.errs = errs;
+console.log(JSON.stringify(r, null, 1)); await b.close();
